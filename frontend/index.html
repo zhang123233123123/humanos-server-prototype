@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HumanOS Task Resumption Prototype</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section class="auth-screen" id="authScreen">
+    <form class="auth-card" id="authForm">
+      <div>
+        <h1>HumanOS</h1>
+      </div>
+      <div class="auth-mode" role="tablist" aria-label="登录方式">
+        <button class="active" id="loginModeBtn" type="button">登录</button>
+        <button id="registerModeBtn" type="button">注册</button>
+      </div>
+      <label id="authNameLabel" class="hidden">姓名
+        <input id="authName" type="text" autocomplete="name" value="Harry Zhang">
+      </label>
+      <label>邮箱
+        <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com">
+      </label>
+      <label>密码
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位">
+      </label>
+      <button class="primary wide" id="authSubmitBtn" type="submit">登录并进入</button>
+      <p class="auth-error" id="authError"></p>
+    </form>
+  </section>
+
+  <section class="profile-screen hidden" id="profileScreen">
+    <form class="profile-wizard" id="profileWizard">
+      <div class="wizard-head">
+        <div>
+          <h1>建立学习偏好</h1>
+          <p>先回答几个问题，再进入日历和任务空间。</p>
+        </div>
+        <span class="status-pill">Profile</span>
+      </div>
+
+      <div class="wizard-grid">
+        <label>你现在主要是哪类学习 / 研究场景？
+          <select id="wizardRole">
+            <option value="研究型学生">研究型学生</option>
+            <option value="课程学习学生">课程学习学生</option>
+            <option value="论文写作阶段">论文写作阶段</option>
+            <option value="项目开发阶段">项目开发阶段</option>
+          </select>
+        </label>
+        <label>一天里最适合做深度任务的时间
+          <input id="wizardDeepWork" type="text" value="09:00-11:30">
+        </label>
+        <label>这周通常有哪些可用于学习的时间段？
+          <input id="wizardAvailableWindows" type="text" placeholder="例如：周一/三 19:00-21:00，周六上午">
+        </label>
+        <label>一天里通常精力较低的时间
+          <input id="wizardLowEnergy" type="text" value="14:00-15:30">
+        </label>
+        <label>一次专注学习你通常能持续多久？
+          <select id="wizardSessionLength">
+            <option value="25">约 25 分钟</option>
+            <option value="45" selected>约 45 分钟</option>
+            <option value="60">约 60 分钟</option>
+            <option value="90">约 90 分钟</option>
+          </select>
+        </label>
+        <label>你更偏好的学习材料 / 方式
+          <select id="wizardLearningMode">
+            <option value="reading_writing">阅读和写作</option>
+            <option value="visual">图表 / 视频 / 可视化</option>
+            <option value="discussion">讨论 / 讲给别人听</option>
+            <option value="practice">做题 / 实操 / 项目推进</option>
+            <option value="mixed">混合方式</option>
+          </select>
+        </label>
+        <label>当前最主要的课程 / 研究任务
+          <input id="wizardCurrentCourses" type="text" placeholder="例如：AI planning论文、用户访谈总结、VLA复现">
+        </label>
+        <label>最近一周最紧的 deadline / 承诺
+          <input id="wizardNearDeadlines" type="text" placeholder="例如：周五前发给队友，周日完成初稿">
+        </label>
+        <label>你现在常用哪些计划工具？
+          <input id="wizardTools" type="text" placeholder="Calendar, Todo, Notion, Excel...">
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>计划最容易失效的地方</legend>
+        <label><input type="checkbox" name="wizardBlocker" value="任务不够清楚"> 任务不够清楚</label>
+        <label><input type="checkbox" name="wizardBlocker" value="状态太累或焦虑"> 状态太累或焦虑</label>
+        <label><input type="checkbox" name="wizardBlocker" value="被外部事情打断"> 被外部事情打断</label>
+        <label><input type="checkbox" name="wizardBlocker" value="切换后回不来"> 切换后回不来</label>
+      </fieldset>
+
+      <label>最近一次“有计划但没有推进”的情况
+        <textarea id="wizardPlanningGap" rows="4" placeholder="例如：明明写在日历里，但到时间后不知道从哪里开始。"></textarea>
+      </label>
+
+      <div class="wizard-grid">
+        <label>接下来两周最重要的学习目标
+          <textarea id="wizardGoal" rows="3" placeholder="例如：读完 planning 相关论文并整理 gap。"></textarea>
+        </label>
+        <label>你希望系统主要帮你降低哪种负担？
+          <select id="wizardSupportNeed">
+            <option value="clarify_next_action">把任务变成下一步行动</option>
+            <option value="schedule_feasible_plan">安排可执行时间表</option>
+            <option value="recover_after_interruption">中断后帮我接回来</option>
+            <option value="balance_load_and_rest">平衡负荷和休息</option>
+          </select>
+        </label>
+      </div>
+
+      <label>调整计划时你希望系统怎么做？
+        <select id="wizardControl">
+          <option value="confirm_before_reschedule">调整前需要我确认</option>
+          <option value="allow_low_risk_auto">低风险建议可以自动放进日历</option>
+        </select>
+      </label>
+
+      <div class="wizard-actions">
+        <button class="ghost" id="skipProfileBtn" type="button">稍后设置</button>
+        <button class="primary" id="saveWizardBtn" type="submit">进入工作台</button>
+      </div>
+      <p class="auth-error" id="wizardError"></p>
+    </form>
+  </section>
+
+  <main class="app hidden" id="appRoot">
+    <header class="topbar">
+      <div>
+        <h1>HumanOS</h1>
+        <p>AI 学习计划 · 中断恢复 · 个性化安排</p>
+      </div>
+      <div class="top-actions">
+        <span class="status-pill" id="userBadge">未登录</span>
+        <button class="ghost" id="workspaceNavBtn" type="button">工作台</button>
+        <button class="ghost" id="profileHomeBtn" type="button">个人主页</button>
+        <button class="ghost" id="logoutBtn" type="button">退出</button>
+        <button class="primary" id="addTaskBtn" type="button">新增任务</button>
+      </div>
+    </header>
+
+    <section class="app-view" id="workspaceView">
+    <section class="system-strip" aria-label="系统状态">
+      <article>
+        <span>Ready Queue</span>
+        <strong>候选任务池</strong>
+      </article>
+      <article>
+        <span>CPU Scheduler</span>
+        <strong>状态 × 任务需求匹配</strong>
+      </article>
+      <article>
+        <span>Context Switch</span>
+        <strong>切换前保存上下文</strong>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <aside class="left-rail">
+        <section class="panel chat-panel">
+          <div class="panel-head">
+            <div>
+              <h2>AI 学习助手</h2>
+              <p>输入任务、状态和中断原因</p>
+            </div>
+            <span class="status-pill" id="modePill">Idle</span>
+          </div>
+
+          <div class="chat-thread" id="chatThread"></div>
+
+          <section class="chat-compose">
+            <textarea id="chatInput" rows="3" placeholder="说一句任务、进展或卡点。排日历至少需要：哪一天、几点、预计多久。Enter 发送，Shift+Enter 换行。"></textarea>
+            <div class="button-row">
+              <button class="primary wide" id="chatSendBtn" type="button">发送</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel state-panel">
+          <div class="mini-head">
+            <h3>当前状态</h3>
+            <span>用于安排今天任务</span>
+          </div>
+          <div class="state-grid">
+            <label>专注
+              <input id="focusInput" type="range" min="1" max="7" value="5">
+            </label>
+            <label>精力
+              <input id="energyInput" type="range" min="1" max="7" value="4">
+            </label>
+            <label>压力
+              <input id="stressInput" type="range" min="1" max="7" value="5">
+            </label>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workbench">
+        <section class="panel calendar-panel">
+          <div class="panel-head">
+            <div>
+              <h2>学习日历</h2>
+              <p>计划与执行空间</p>
+              <span class="today-badge" id="todayBadge">今天</span>
+            </div>
+            <div class="view-actions">
+              <div class="segmented" role="tablist" aria-label="视图">
+                <button class="active" id="dayViewBtn" type="button">日</button>
+                <button id="weekViewBtn" type="button">周</button>
+              </div>
+              <button class="icon-btn" id="autoScheduleBtn" type="button" title="自动安排">↻</button>
+            </div>
+          </div>
+          <div class="calendar" id="calendar"></div>
+          <div class="pending-schedule hidden" id="pendingSchedule">
+            <div>
+              <strong>待确认安排</strong>
+              <p id="pendingScheduleText"></p>
+            </div>
+            <div class="button-row">
+              <button class="ghost" id="rejectScheduleBtn" type="button">取消</button>
+              <button class="primary" id="confirmScheduleBtn" type="button">确认加入日历</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="below-workbench">
+          <aside class="panel inspector-panel">
+            <div class="panel-head">
+              <div>
+                <h2>任务详情</h2>
+                <p id="resumeSubtitle">选择一个任务</p>
+              </div>
+            </div>
+
+            <section class="active-task" id="activeTask"></section>
+
+            <section class="scheduler-lens-box">
+              <div class="mini-head">
+                <h3>调度状态映射</h3>
+                <span>OS 原理如何解释当前任务</span>
+              </div>
+              <div id="schedulingLens"></div>
+            </section>
+
+            <section class="context-window-box">
+              <div class="mini-head">
+                <h3>上下文窗口</h3>
+                <span>恢复任务时先看这里</span>
+              </div>
+              <div class="context-window" id="contextWindow"></div>
+            </section>
+
+            <section class="checkpoint-box">
+              <div class="mini-head">
+                <h3>中断记录</h3>
+                <span id="checkpointCount">0 条</span>
+              </div>
+              <div id="checkpointView" class="checkpoint-view"></div>
+            </section>
+
+            <section class="brief-box">
+              <div class="mini-head">
+                <h3>恢复提示</h3>
+                <span>继续开始</span>
+              </div>
+              <div class="brief" id="resumeBrief"></div>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>安排理由</h2>
+            <p>给用户保留最终控制权</p>
+          </div>
+        </div>
+        <div class="reasoning" id="reasoning"></div>
+      </article>
+
+      <article class="panel os-mapping-panel">
+        <div class="panel-head">
+          <div>
+            <h2>计算机调度原理映射</h2>
+            <p>从操作系统调度流程转译到 HumanOS 的产品机制</p>
+          </div>
+          <a class="ghost link-button" href="../../assets/diagrams/HumanOS_computational_scheduling_interactive.html" target="_blank" rel="noopener">完整映射图</a>
+        </div>
+        <div class="os-flow" aria-label="OS 调度到 HumanOS 映射">
+          <div class="os-node blue">
+            <span>Job Arrival</span>
+            <strong>任务输入</strong>
+            <p>自然语言被转成可调度任务对象。</p>
+          </div>
+          <div class="os-node green">
+            <span>Ready Queue</span>
+            <strong>候选任务池</strong>
+            <p>任务先进入队列，根据状态等待选择。</p>
+          </div>
+          <div class="os-node gold">
+            <span>CPU Scheduler</span>
+            <strong>匹配当前资源</strong>
+            <p>综合截止期、优先级、可用时间和状态。</p>
+          </div>
+          <div class="os-node coral">
+            <span>Dispatcher</span>
+            <strong>用户确认</strong>
+            <p>生成可解释安排，确认后进入日历。</p>
+          </div>
+          <div class="os-node red">
+            <span>Running</span>
+            <strong>执行与追踪</strong>
+            <p>记录进展、卡点和状态变化。</p>
+          </div>
+          <div class="os-node red">
+            <span>Interrupt</span>
+            <strong>触发重排</strong>
+            <p>打断或状态变化时才请求调整。</p>
+          </div>
+          <div class="os-node gold">
+            <span>Context Switch</span>
+            <strong>保存上下文</strong>
+            <p>保存进度、下一步和开放问题。</p>
+          </div>
+          <div class="os-node blue">
+            <span>Blocked</span>
+            <strong>等待依赖</strong>
+            <p>等待资料、回复或外部条件。</p>
+          </div>
+          <div class="os-node gray">
+            <span>Terminated</span>
+            <strong>复盘更新</strong>
+            <p>完成后更新个人任务需求基线。</p>
+          </div>
+        </div>
+      </article>
+    </section>
+    </section>
+
+    <section class="app-view hidden" id="profileHomeView">
+      <section class="profile-home-grid">
+        <article class="panel profile-main-card">
+          <div class="panel-head">
+            <div>
+              <h2>个人主页</h2>
+              <p>管理初始 Profile、学习偏好和系统确认方式</p>
+            </div>
+            <span class="status-pill" id="backendStatus">未同步</span>
+          </div>
+
+          <section class="profile-card">
+            <label>身份 / 场景
+              <input id="profileRole" type="text" value="研究型学生">
+            </label>
+            <label>深度工作窗口
+              <input id="profileDeepWork" type="text" value="09:00-11:30">
+            </label>
+            <label>AI 安排偏好
+              <select id="profileControl">
+                <option value="confirm_before_reschedule">调整计划前需要确认</option>
+                <option value="allow_low_risk_auto">低风险可自动建议</option>
+              </select>
+            </label>
+            <div class="button-row">
+              <button class="primary" id="saveProfileBtn" type="button">保存偏好</button>
+              <button class="ghost" id="openProfileWizardBtn" type="button">重新填写初始问题</button>
+            </div>
+          </section>
+        </article>
+
+        <article class="panel profile-main-card">
+          <div class="panel-head">
+            <div>
+              <h2>初始问题</h2>
+              <p>用于第一次理解你的计划方式和常见卡点</p>
+            </div>
+          </div>
+          <div class="profile-summary" id="profileSummary"></div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="taskDialog">
+    <form method="dialog" class="dialog-card" id="taskForm">
+      <div class="dialog-head">
+        <h2 id="taskDialogTitle">新增学术任务</h2>
+        <button class="icon-btn" id="closeTaskDialogBtn" value="cancel" type="button" title="关闭">×</button>
+      </div>
+      <label>任务名称
+        <input id="newTitle" type="text" value="整理 HumanOS related work">
+      </label>
+      <label>截止期
+        <input id="newDue" type="text" value="周五 18:00">
+      </label>
+      <label>预计时长
+        <input id="newDuration" type="number" min="30" step="15" value="90">
+      </label>
+      <label>优先级
+        <select id="newPriority">
+          <option value="高">高</option>
+          <option value="中" selected>中</option>
+          <option value="低">低</option>
+        </select>
+      </label>
+      <label>状态
+        <select id="newStatus">
+          <option value="queued">待安排</option>
+          <option value="scheduled">已安排</option>
+          <option value="running">进行中</option>
+          <option value="paused">暂停</option>
+          <option value="completed">完成</option>
+        </select>
+      </label>
+      <label>初始上下文
+        <textarea id="newContext" rows="4">需要比较 Motion、TaskSnap、TaskTracer 和 HumanOS 的差异。</textarea>
+      </label>
+      <label>当前进展
+        <textarea id="newProgress" rows="2" placeholder="已经完成了什么？当前材料停在哪里？"></textarea>
+      </label>
+      <label>下一步
+        <textarea id="newNextStep" rows="2" placeholder="回来后第一步应该做什么？"></textarea>
+      </label>
+      <label>未解决问题
+        <textarea id="newOpenQuestions" rows="2" placeholder="还有哪些问题、依赖或不确定性？"></textarea>
+      </label>
+      <div class="dialog-actions">
+        <button class="danger hidden" id="deleteTaskBtn" type="button">删除任务</button>
+        <button class="primary" id="saveTaskBtn" value="default" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HumanOS 计算机调度原理与文献证据</title>
+  <style>
+    :root {
+      --ink: #132238;
+      --muted: #526070;
+      --line: #cad6e2;
+      --bg: #f7fbff;
+      --panel: #ffffff;
+      --blue: #0b6fbf;
+      --green: #1f9d8a;
+      --gold: #d49b21;
+      --coral: #d95f43;
+      --red: #c2414b;
+      --gray: #8b99a8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      background: linear-gradient(135deg, #f7fbff 0%, #fff9ef 100%);
+    }
+
+    .page {
+      width: min(1500px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 36px 0 44px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 36px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--blue); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .canvas {
+      background: rgba(255,255,255,.74);
+      border: 1px solid #d7e0ea;
+      border-radius: 18px;
+      box-shadow: 0 12px 32px rgba(23,32,51,.08);
+    }
+
+    .canvas {
+      position: relative;
+      padding: 24px;
+      overflow-x: auto;
+      overflow-y: visible;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .scheduler-map {
+      position: relative;
+      width: 100%;
+      height: 720px;
+      min-width: 1120px;
+      margin: 4px 0 18px;
+      border: 1px solid #dbe4ee;
+      border-radius: 16px;
+      background: rgba(255,255,255,.52);
+      overflow: visible;
+    }
+
+    .diagram-svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .connector {
+      stroke: #697b8f;
+      stroke-width: 3;
+      fill: none;
+      marker-end: url(#arrowHead);
+    }
+
+    .connector.return {
+      stroke: #8997a8;
+      stroke-dasharray: 8 8;
+    }
+
+    .svg-label-bg {
+      fill: rgba(255,255,255,.94);
+      stroke: #dbe4ee;
+      stroke-width: 1.2;
+    }
+
+    .svg-label {
+      font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--muted);
+      fill: #526070;
+    }
+
+    .node {
+      min-height: 140px;
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      padding: 16px;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+      text-align: left;
+    }
+
+    .svg-node {
+      cursor: pointer;
+    }
+
+    .svg-node rect {
+      stroke-width: 2.3;
+      filter: drop-shadow(0 10px 18px rgba(23,32,51,.08));
+    }
+
+    .svg-node:hover rect,
+    .svg-node.active rect {
+      stroke: var(--blue);
+      stroke-width: 3.2;
+    }
+
+    .svg-node-title {
+      font: 700 20px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #132238;
+    }
+
+    .svg-node-subtitle {
+      font: 500 16px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #526070;
+    }
+
+    .svg-node-body {
+      font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #526070;
+    }
+
+    .node:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px rgba(23,32,51,.12);
+    }
+
+    .node.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 4px rgba(11,111,191,.12), 0 10px 24px rgba(23,32,51,.12);
+    }
+
+    .node.blue { background: #eef8ff; border-color: #7fc1ea; }
+    .node.green { background: #edfbf7; border-color: #8ad8c8; }
+    .node.gold { background: #fff6dd; border-color: #e1bc5b; }
+    .node.coral { background: #fff1ec; border-color: #df9582; }
+    .node.red { background: #fff0f0; border-color: #de8b92; }
+    .node.gray { background: #f4f6f8; border-color: #b4bfca; }
+
+    .node h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      line-height: 1.25;
+    }
+
+    .node p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .popover {
+      position: absolute;
+      z-index: 20;
+      width: 430px;
+      max-height: 560px;
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid #d7e0ea;
+      border-radius: 16px;
+      background: rgba(255,255,255,.98);
+      box-shadow: 0 18px 48px rgba(23,32,51,.18);
+    }
+
+    .popover[hidden] { display: none; }
+
+    .popover-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .popover-close {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .popover h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+
+    .popover .tag {
+      display: inline-block;
+      margin: 0 0 18px;
+      border: 1px solid #b8c6d4;
+      border-radius: 999px;
+      padding: 5px 10px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .popover h3 {
+      margin: 20px 0 8px;
+      font-size: 15px;
+      line-height: 1.3;
+      color: var(--blue);
+    }
+
+    .popover p, .popover li {
+      color: #374151;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .popover ul {
+      padding-left: 20px;
+      margin: 8px 0 0;
+    }
+
+    .kv {
+      display: grid;
+      gap: 10px;
+    }
+
+    .kv div {
+      padding: 12px;
+      border: 1px solid #e0e7ef;
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .kv strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .mini-figure {
+      margin: 10px 0 16px;
+      border: 1px solid #dbe4ee;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #f8fbff 0%, #fffaf2 100%);
+      overflow: hidden;
+    }
+
+    .mini-figure svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .mini-title {
+      font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #132238;
+    }
+
+    .mini-body {
+      font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #526070;
+    }
+
+    .mini-chip {
+      font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      fill: #0b6fbf;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .evidence-card {
+      border: 1px solid #dbe4ee;
+      border-radius: 12px;
+      padding: 14px;
+      background: #fff;
+      min-height: 145px;
+      cursor: pointer;
+    }
+
+    .evidence-card:hover { border-color: var(--blue); }
+
+    .evidence-card h4 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .evidence-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .mapping-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .mapping-card {
+      border: 1px solid #dbe4ee;
+      border-radius: 12px;
+      padding: 16px;
+      background: #fff;
+      min-height: 172px;
+      cursor: pointer;
+    }
+
+    .mapping-card:hover { border-color: var(--blue); }
+
+    .mapping-card h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+
+    .mapping-card .os-term {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 4px 9px;
+      border: 1px solid #dbe4ee;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      background: #f8fafc;
+    }
+
+    .mapping-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .canvas { overflow-x: auto; }
+      .evidence-grid { grid-template-columns: 1fr; }
+      .mapping-grid { grid-template-columns: 1fr; }
+      header { grid-template-columns: 1fr; }
+      .popover {
+        position: fixed;
+        left: 16px !important;
+        right: 16px;
+        top: 16px !important;
+        width: auto;
+        max-height: calc(100vh - 32px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <h1>HumanOS：计算机调度原理与文献证据</h1>
+        <p class="subtitle">先看标准操作系统如何调度进程；点击任一模块，查看它如何被文献支持，并如何为后续 HumanOS 映射提供依据。</p>
+      </div>
+      <div class="toolbar">
+        <button id="resetBtn" type="button">回到总览</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="canvas" aria-label="交互式调度图">
+        <div class="section-title">
+          <h2>Step 1. 计算机 / 操作系统调度流程</h2>
+          <span class="hint">点击模块查看文献内容</span>
+        </div>
+
+        <div class="scheduler-map" id="schedulerMap">
+          <svg class="diagram-svg" id="diagramSvg" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid meet" role="img" aria-label="操作系统调度关系图">
+            <defs>
+              <marker id="arrowHead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#697b8f"></path>
+              </marker>
+            </defs>
+          </svg>
+          <div class="popover" id="popover" hidden aria-live="polite"></div>
+        </div>
+
+        <div class="section-title" style="margin-top:30px">
+          <h2>Step 2. 文献证据贴到对应调度部件</h2>
+          <span class="hint">证据块也可以点击</span>
+        </div>
+        <div class="evidence-grid" id="evidenceGrid"></div>
+
+        <div class="section-title" style="margin-top:30px">
+          <h2>Step 3. OS -> HumanOS 人体 / 认知调度映射</h2>
+          <span class="hint">基于 HumanOS Framework.pdf 的对应说法</span>
+        </div>
+        <div class="mapping-grid" id="mappingGrid"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    const modules = [
+      {
+        id: "arrival",
+        group: "main",
+        box: { x: 55, y: 80, w: 190, h: 135 },
+        color: "blue",
+        title: "Job Arrival",
+        zh: "作业 / 进程到达",
+        summary: "新进程被创建或作业被提交，系统需要把它转换为可调度对象。",
+        os: "在操作系统中，程序被创建为 process/job，进入调度系统。它会拥有状态、资源需求、优先级、上下文等信息。",
+        humanos: {
+          module: "Task Capture",
+          saying: "人的任务不是直接进入日程，而是先被转译成可调度的任务模型。",
+          framework: "对应 HumanOS Framework 中的 Natural task input、Semantic task parsing、Demand cue extraction 和 TaskModel。",
+          fields: "TaskFacts, TaskState, DemandCues, Confidence_TaskModel"
+        },
+        evidence: [
+          {
+            name: "KLM",
+            content: "任务可以被拆成可估计的成本单元。HumanOS 可借鉴这种思想，把开放任务表示为 cognitive_task_object。",
+            variables: "estimated_duration, ambiguity, context_needed, cognitive_load, switch_cost, reentry_cost",
+            computation: "任务解析、字段填充、成本估计",
+            output: "展示任务属性、可解释排程理由",
+            boundary: "KLM 支撑的是任务可结构化表示，不是直接证明日常任务可以被准确自动排期。"
+          }
+        ]
+      },
+      {
+        id: "ready",
+        group: "main",
+        box: { x: 310, y: 80, w: 205, h: 135 },
+        color: "green",
+        title: "Ready Queue",
+        zh: "就绪队列",
+        summary: "已经准备好运行的进程不会立即占用 CPU，而是在队列中等待调度策略选择。",
+        os: "Ready Queue 保存所有可运行但尚未获得 CPU 的进程。不同系统会用 FCFS、Priority、Round Robin、MLFQ 等策略组织队列。",
+        humanos: {
+          module: "AI Scheduler / Candidate Task Ranking",
+          saying: "人的待办不是线性清单，而是一个会随状态变化的候选任务池。",
+          framework: "对应 HumanOS Framework 中的 Candidate task ranking、Task eligibility check 和 Approved schedule / selected task。",
+          fields: "candidate tasks, eligibility, deadline, constraints, approved schedule"
+        },
+        evidence: [
+          {
+            name: "Diary Study / Fragmented work",
+            content: "真实知识工作不是线性清单，而是动态任务池：任务会暂停、被打断、等待材料，并在之后重入。",
+            variables: "paused_tasks, interrupted_tasks, reentry_candidates, working_spheres",
+            computation: "状态迁移、暂停恢复管理",
+            output: "重入提示、恢复入口",
+            boundary: "Diary Study 证明真实工作碎片化，但不直接给出 AI 调度算法。"
+          }
+        ]
+      },
+      {
+        id: "scheduler",
+        group: "main",
+        box: { x: 575, y: 80, w: 205, h: 135 },
+        color: "gold",
+        title: "CPU Scheduler",
+        zh: "CPU 调度器",
+        summary: "调度器根据策略从队列中选择下一个运行的进程。",
+        os: "常见策略包括 FCFS、SJF、Priority、Round Robin、MLFQ、EDF。核心问题是有限资源下如何选择下一项工作。",
+        humanos: {
+          module: "Current Resource State + Resource-Demand Matching",
+          saying: "HumanOS 不只问哪个任务重要，而是判断当前认知资源是否适合运行这个任务。",
+          framework: "对应 HumanOS Framework 中的 R_t = [Capacity_t, Load_t, Stability_t]、Expected demand estimation 和 FitAssessment。",
+          fields: "Capacity, Load, Stability, Expected Task Demand, FitStatus, Confidence"
+        },
+        evidence: [
+          {
+            name: "QN-MHP",
+            content: "多任务表现受有限处理资源与队列竞争约束，可支持把用户状态和任务负荷表示成资源向量。",
+            variables: "task_energy_profile, state_estimator",
+            computation: "估计资源占用与瓶颈",
+            output: "推荐低冲突候选任务",
+            boundary: "QN-MHP 是计算建模先例，不等于 HumanOS 直接复用其仿真模型。"
+          },
+          {
+            name: "Threaded Cognition",
+            content: "多个任务线程会争用语言、记忆、视觉、运动、执行控制等共享资源。",
+            variables: "task_resource_profile",
+            computation: "资源冲突检测",
+            output: "提示缓冲、切换准备",
+            boundary: "它支撑资源冲突判断，但不是个人日程调度系统。"
+          }
+        ]
+      },
+      {
+        id: "dispatcher",
+        group: "main",
+        box: { x: 840, y: 80, w: 190, h: 135 },
+        color: "coral",
+        title: "Dispatcher",
+        zh: "派发器",
+        summary: "派发器把被选中的进程真正交给 CPU 执行。",
+        os: "Dispatcher 负责上下文加载、切换到用户态，并跳转到程序执行位置。它是策略选择之后的执行入口。",
+        humanos: {
+          module: "Schedule Proposal + User Review",
+          saying: "被选中的任务不会被系统强行执行，而是以可解释计划交给用户确认、修改或拒绝。",
+          framework: "对应 HumanOS Framework 中的 Schedule proposal generation、Schedule proposal 和 User review & correction。",
+          fields: "time blocks, task order, buffers, task decomposition, accept/modify/reject"
+        },
+        evidence: [
+          {
+            name: "Calendar.help / Plan-Then-Execute",
+            content: "真实调度系统需要把计划、解释、确认、执行拆成 workflow，而不是一次性自动决定。",
+            variables: "workflow_state, plan_stage",
+            computation: "intake、planning、execution、feedback",
+            output: "explain、approve/fix",
+            boundary: "这些工作支撑 workflow-based scheduling，不处理完整的认知状态模型。"
+          }
+        ]
+      },
+      {
+        id: "running",
+        group: "main",
+        box: { x: 1090, y: 80, w: 190, h: 135 },
+        color: "red",
+        title: "Running on CPU",
+        zh: "CPU 正在运行",
+        summary: "进程获得 CPU 后运行，可能完成、阻塞，或被中断抢占。",
+        os: "Running state 是当前实际占用 CPU 的进程状态。它会受到时间片、I/O 请求、系统调用和中断影响。",
+        humanos: {
+          module: "Execution & Runtime State",
+          saying: "任务进入执行后，系统持续观察执行过程，而不是认为计划已经结束。",
+          framework: "对应 HumanOS Framework 中的 Task execution、Runtime telemetry、RuntimeEvidence 和 Runtime state estimation。",
+          fields: "time elapsed, pauses, switches, speech cues, self-report, task-progress evidence"
+        },
+        evidence: [
+          {
+            name: "ReAct / Reflexion",
+            content: "执行不是静态一次性计划，而是 reason -> act -> observe -> revise，并通过反思更新经验。",
+            variables: "feedback_memory, profile_update",
+            computation: "execution、feedback、reflection",
+            output: "weekly reflection",
+            boundary: "Agent 反思机制需要被用户修正，不能把系统自我总结当作客观真相。"
+          }
+        ]
+      },
+      {
+        id: "interrupt",
+        group: "secondary",
+        box: { x: 575, y: 400, w: 205, h: 145 },
+        color: "red",
+        title: "Interrupt / Preemption",
+        zh: "中断 / 抢占",
+        summary: "运行中的进程可能因计时器、高优先级任务或系统调用被打断。",
+        os: "抢占式调度允许系统暂停当前进程，将 CPU 交给更紧急或更合适的进程。",
+        humanos: {
+          module: "Event-Triggered Rescheduling",
+          saying: "当用户状态、任务进展或外部约束发生有意义变化时，HumanOS 才触发重新调度。",
+          framework: "对应 HumanOS Framework 中的 Change detection、Replanning trigger、Meaningful change? 和 Adaptive action。",
+          fields: "RuntimeEvidence, R_t+1, replanning request, clarify/decompose/buffer/reallocate/reschedule"
+        },
+        evidence: [
+          {
+            name: "Interrupted Work / Attention-aware systems",
+            content: "打断会影响压力、努力感和恢复成本，因此系统要判断是否介入、何时介入。",
+            variables: "interruptibility, interruption_cost, affective_risk",
+            computation: "估计 time/stress/effort/reentry cost",
+            output: "stay_silent, defer, ask, confirm",
+            boundary: "不能把所有提醒都视为好事；有时最好的动作是保持安静。"
+          },
+          {
+            name: "Mixed-Initiative UI",
+            content: "自动化需要在置信度、风险、收益、纠错成本和用户控制权之间权衡。",
+            variables: "confidence, action_impact, expected_value, correction_cost, user_control_preference",
+            computation: "权衡置信度、风险、用户控制权",
+            output: "suggest, ask, confirm, scaffold, allow_override",
+            boundary: "系统不应完全接管用户，应允许覆盖和修正。"
+          }
+        ]
+      },
+      {
+        id: "context",
+        group: "secondary",
+        box: { x: 310, y: 400, w: 205, h: 145 },
+        color: "gold",
+        title: "Context Switch",
+        zh: "上下文切换",
+        summary: "系统保存当前进程状态，并恢复下一个进程状态。",
+        os: "Context switch 包含保存寄存器、程序计数器、内存映射等状态；它有开销，不是免费动作。",
+        humanos: {
+          module: "Context Preservation + Runtime Evidence",
+          saying: "人的任务切换需要保存目标、进度、下一步和残留问题，否则恢复时会丢失上下文。",
+          framework: "对应 HumanOS Framework 中的 TaskState、RuntimeEvidence、switch reason 和 current progress 记录。",
+          fields: "task_goal, current_progress, next_action, switch reason, residual resource occupation"
+        },
+        evidence: [
+          {
+            name: "Task Switching / Rogers & Monsell",
+            content: "任务切换存在非零成本，即使可预测切换也可能有 residual switch cost。",
+            variables: "switchability, context_switch_cost, planned_switch_cost, residual_switch_cost",
+            computation: "根据 closure、task-set distance、preparation time 估计",
+            output: "defer, boundary_ritual, reentry_note",
+            boundary: "切换成本文献解释机制，不直接给出开放任务调度公式。"
+          },
+          {
+            name: "Memory for Goals",
+            content: "恢复任务依赖目标重激活，因此需要保存任务目标、进度、下一步和未解决问题。",
+            variables: "context_snapshot",
+            computation: "保存 task_goal, current_progress, next_action",
+            output: "resume hint、继续入口",
+            boundary: "它支撑恢复线索设计，不是日志系统本身。"
+          }
+        ]
+      },
+      {
+        id: "blocked",
+        group: "secondary",
+        box: { x: 840, y: 400, w: 190, h: 145 },
+        color: "blue",
+        title: "Waiting / Blocked",
+        zh: "等待 / 阻塞",
+        summary: "进程等待 I/O 或外部事件时不能继续运行，应离开 CPU。",
+        os: "Blocked process 不在 ready queue 中竞争 CPU，直到等待的事件完成后才重新进入就绪队列。",
+        humanos: {
+          module: "Dependencies / External Constraints",
+          saying: "等待回复、材料、审批或会议结果的任务不应占用深度工作资源，而应进入等待状态。",
+          framework: "对应 HumanOS Framework 中的 dependency、constraints、external constraints、meetings 和 disruptions。",
+          fields: "dependency, constraints, flexibility, external constraints, waiting state"
+        },
+        evidence: [
+          {
+            name: "Fragmented work",
+            content: "真实任务经常等待回复、材料、审批或状态恢复，不能把所有任务都当作可立即执行。",
+            variables: "waiting tasks, reentry_candidates",
+            computation: "等待状态管理、恢复入口维护",
+            output: "恢复入口、低摩擦提醒",
+            boundary: "等待状态需要被管理，但不应制造过多提醒。"
+          }
+        ]
+      },
+      {
+        id: "terminated",
+        group: "secondary",
+        box: { x: 1090, y: 400, w: 190, h: 145 },
+        color: "gray",
+        title: "Terminated",
+        zh: "完成 / 结束",
+        summary: "进程完成后释放资源；系统记录结果。",
+        os: "Terminated state 表示进程生命周期结束，系统释放资源并记录执行结果。",
+        humanos: {
+          module: "Reflection & Model Update",
+          saying: "任务结束后，HumanOS 比较预期负荷和实际体验，并更新个人基线与需求估计。",
+          framework: "对应 HumanOS Framework 中的 Expected-actual comparison、Contextual reflection、Model update 和 updated personal baseline。",
+          fields: "actual workload, energy change, recovery need, interruption/switch reason, learned demand history"
+        },
+        evidence: [
+          {
+            name: "Attention Residue",
+            content: "任务结束不等于认知上完成。未解决问题和未闭合目标可能残留占用注意。",
+            variables: "attention_residue_risk, task_closure_level, unfinished_cognitive_threads",
+            computation: "依据 unfinishedness、unresolved questions、emotional salience 计算",
+            output: "closure_prompt, boundary_ritual",
+            boundary: "注意力残留说明需要 closure 机制，但不意味着系统能客观测量用户注意力。"
+          }
+        ]
+      }
+    ];
+
+    const diagramSvg = document.getElementById("diagramSvg");
+    const evidenceGrid = document.getElementById("evidenceGrid");
+    const mappingGrid = document.getElementById("mappingGrid");
+    const popover = document.getElementById("popover");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const svgNS = "http://www.w3.org/2000/svg";
+
+    const colors = {
+      blue: ["#eef8ff", "#7fc1ea"],
+      green: ["#edfbf7", "#8ad8c8"],
+      gold: ["#fff6dd", "#e1bc5b"],
+      coral: ["#fff1ec", "#df9582"],
+      red: ["#fff0f0", "#de8b92"],
+      gray: ["#f4f6f8", "#b4bfca"]
+    };
+
+    function svgEl(name, attrs = {}) {
+      const el = document.createElementNS(svgNS, name);
+      Object.entries(attrs).forEach(([key, value]) => el.setAttribute(key, value));
+      return el;
+    }
+
+    function addText(parent, text, x, y, cls) {
+      const el = svgEl("text", { x, y, class: cls });
+      el.textContent = text;
+      parent.appendChild(el);
+      return el;
+    }
+
+    function wrapText(text, maxChars) {
+      const chunks = text.split(/(?=[，。；、\s])|(?<=[，。；、\s])/).filter(Boolean);
+      const lines = [];
+      let current = "";
+      chunks.forEach(chunk => {
+        const candidate = current + chunk;
+        if (candidate.length > maxChars && current) {
+          lines.push(current.trim());
+          current = chunk.trimStart();
+        } else {
+          current = candidate;
+        }
+      });
+      if (current.trim()) lines.push(current.trim());
+      return lines.slice(0, 3);
+    }
+
+    function connector(path, cls = "connector") {
+      diagramSvg.appendChild(svgEl("path", { d: path, class: cls }));
+    }
+
+    function label(text, x, y, w = 82) {
+      const g = svgEl("g");
+      g.appendChild(svgEl("rect", { x, y: y - 18, width: w, height: 26, rx: 13, class: "svg-label-bg" }));
+      addText(g, text, x + 12, y, "svg-label");
+      diagramSvg.appendChild(g);
+    }
+
+    function nodeTemplate(item) {
+      const { x, y, w, h } = item.box;
+      const [fill, stroke] = colors[item.color];
+      const g = svgEl("g", { class: "svg-node", "data-id": item.id, tabindex: "0", role: "button" });
+      g.appendChild(svgEl("rect", { x, y, width: w, height: h, rx: 16, fill, stroke }));
+      addText(g, item.title, x + 20, y + 34, "svg-node-title");
+      addText(g, item.zh, x + 20, y + 68, "svg-node-subtitle");
+      addText(g, "点击查看文献证据", x + 20, y + 102, "svg-node-body");
+      g.addEventListener("click", () => selectModule(item.id));
+      g.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") selectModule(item.id);
+      });
+      return g;
+    }
+
+    function evidenceTemplate(item) {
+      const card = document.createElement("article");
+      card.className = "evidence-card";
+      card.dataset.id = item.id;
+      card.innerHTML = `<h4>${item.zh}</h4><p>${item.evidence.map(e => e.name).join(" / ")}</p>`;
+      card.addEventListener("click", () => selectModule(item.id));
+      return card;
+    }
+
+    function mappingTemplate(item) {
+      const card = document.createElement("article");
+      card.className = "mapping-card";
+      card.dataset.id = item.id;
+      card.innerHTML = `
+        <span class="os-term">${item.title}</span>
+        <h4>${item.humanos.module}</h4>
+        <p>${item.humanos.saying}</p>
+      `;
+      card.addEventListener("click", () => selectModule(item.id));
+      return card;
+    }
+
+    function renderNodes() {
+      connector("M 245 148 L 310 148");
+      connector("M 515 148 L 575 148");
+      connector("M 780 148 L 840 148");
+      connector("M 1030 148 L 1090 148");
+      connector("M 1185 215 L 1185 400");
+      connector("M 1164 215 L 1164 295 L 935 295 L 935 400");
+      connector("M 1138 215 L 1138 295 L 678 295 L 678 400");
+      connector("M 840 472 L 780 472");
+      connector("M 575 472 L 515 472");
+      connector("M 413 400 L 413 215", "connector return");
+      connector("M 935 545 L 935 645 L 280 645 L 280 148 L 310 148", "connector return");
+      label("完成", 1148, 332, 58);
+      label("等待", 908, 332, 58);
+      label("中断/抢占", 635, 332, 92);
+      label("上下文恢复", 330, 305, 98);
+      label("等待结束后回到就绪队列", 480, 677, 180);
+      modules.forEach(m => diagramSvg.appendChild(nodeTemplate(m)));
+      modules.forEach(m => evidenceGrid.appendChild(evidenceTemplate(m)));
+      modules.forEach(m => mappingGrid.appendChild(mappingTemplate(m)));
+    }
+
+    function positionPopover(item) {
+      const { x, y, w } = item.box;
+      const popoverWidth = 430;
+      const mapWidth = 1280;
+      const preferredLeft = x + w + 22;
+      const left = preferredLeft + popoverWidth < mapWidth ? preferredLeft : Math.max(18, x - popoverWidth - 22);
+      const top = Math.max(18, Math.min(y - 18, 720 - 560 - 18));
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function splitFields(value) {
+      return value.split(",").map(v => v.trim()).filter(Boolean).slice(0, 3);
+    }
+
+    function miniFigure(item) {
+      const fields = splitFields(item.humanos.fields);
+      const fieldText = fields.length ? fields.join(" / ") : "Framework fields";
+      return `
+        <div class="mini-figure" aria-label="OS 到 HumanOS 映射小图">
+          <svg viewBox="0 0 430 180" role="img">
+            <defs>
+              <marker id="miniArrow-${item.id}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#526070"></path>
+              </marker>
+            </defs>
+            <rect x="18" y="28" width="120" height="74" rx="12" fill="#eef8ff" stroke="#7fc1ea" stroke-width="1.8"></rect>
+            <text x="32" y="56" class="mini-title">${escapeHtml(item.title)}</text>
+            <text x="32" y="80" class="mini-body">${escapeHtml(item.zh)}</text>
+
+            <path d="M 146 65 L 198 65" stroke="#526070" stroke-width="2.4" fill="none" marker-end="url(#miniArrow-${item.id})"></path>
+            <text x="156" y="50" class="mini-chip">映射</text>
+
+            <rect x="206" y="28" width="206" height="74" rx="12" fill="#edfbf7" stroke="#8ad8c8" stroke-width="1.8"></rect>
+            <text x="222" y="56" class="mini-title">${escapeHtml(item.humanos.module)}</text>
+            <text x="222" y="80" class="mini-body">HumanOS Framework module</text>
+
+            <path d="M 309 106 L 309 126" stroke="#526070" stroke-width="2.4" fill="none" marker-end="url(#miniArrow-${item.id})"></path>
+
+            <rect x="56" y="132" width="318" height="30" rx="15" fill="#fff" stroke="#dbe4ee" stroke-width="1.4"></rect>
+            <text x="74" y="152" class="mini-body">关键数据：${escapeHtml(fieldText)}</text>
+          </svg>
+        </div>
+      `;
+    }
+
+    function renderPopover(item) {
+      popover.innerHTML = `
+        <div class="popover-header">
+          <div>
+            <h2>${item.zh}</h2>
+            <span class="tag">${item.title}</span>
+          </div>
+          <button class="popover-close" type="button" aria-label="关闭">×</button>
+        </div>
+        <h3>计算机调度含义</h3>
+        <p>${item.os}</p>
+        <h3>为什么能支持 HumanOS 映射</h3>
+        <p>${item.summary}</p>
+        <h3>HumanOS 人体 / 认知调度映射</h3>
+        ${miniFigure(item)}
+        <div class="kv">
+          <div>
+            <strong>${item.humanos.module}</strong>
+            <p>${item.humanos.saying}</p>
+            <ul>
+              <li><b>Framework 对应：</b>${item.humanos.framework}</li>
+              <li><b>关键字段：</b>${item.humanos.fields}</li>
+            </ul>
+          </div>
+        </div>
+        <h3>对应文献内容</h3>
+        <div class="kv">
+          ${item.evidence.map(e => `
+            <div>
+              <strong>${e.name}</strong>
+              <p>${e.content}</p>
+              <ul>
+                <li><b>HumanOS 变量：</b>${e.variables}</li>
+                <li><b>计算过程：</b>${e.computation}</li>
+                <li><b>交互输出：</b>${e.output}</li>
+                <li><b>边界：</b>${e.boundary}</li>
+              </ul>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      popover.querySelector(".popover-close").addEventListener("click", hidePopover);
+      positionPopover(item);
+      popover.hidden = false;
+    }
+
+    function hidePopover() {
+      popover.hidden = true;
+      document.querySelectorAll("[data-id]").forEach(el => el.classList.remove("active"));
+    }
+
+    function selectModule(id) {
+      const item = modules.find(m => m.id === id);
+      document.querySelectorAll("[data-id]").forEach(el => el.classList.toggle("active", el.dataset.id === id));
+      renderPopover(item);
+    }
+
+    resetBtn.addEventListener("click", () => {
+      hidePopover();
+    });
+
+    renderNodes();
+  </script>
+</body>
+</html>
