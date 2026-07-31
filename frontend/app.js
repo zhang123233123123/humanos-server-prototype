@@ -70,6 +70,8 @@ let activeSelectionMode = "auto";
 const API_HOST = window.location.hostname || "127.0.0.1";
 const API_PROTOCOL = window.location.protocol === "https:" ? "https:" : "http:";
 const API_BASE = window.HUMANOS_API_BASE || `${API_PROTOCOL}//${API_HOST}:8787`;
+const CHAT_CONTEXT_TURN_LIMIT = 50;
+const CHAT_MESSAGE_DISPLAY_LIMIT = CHAT_CONTEXT_TURN_LIMIT * 2;
 let currentUser = JSON.parse(localStorage.getItem("humanosUser") || "null");
 let authMode = "login";
 let backendOnline = false;
@@ -321,7 +323,9 @@ function addChatMessage(sender, title, text) {
     text,
     createdAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
   });
-  if (chatMessages.length > 20) chatMessages = chatMessages.slice(-20);
+  if (chatMessages.length > CHAT_MESSAGE_DISPLAY_LIMIT) {
+    chatMessages = chatMessages.slice(-CHAT_MESSAGE_DISPLAY_LIMIT);
+  }
 }
 
 function formatBackendTime(ms) {
@@ -349,7 +353,7 @@ function chatMessagesFromTurns(turns = []) {
         createdAt
       }
     ];
-  }).slice(-20);
+  }).slice(-CHAT_MESSAGE_DISPLAY_LIMIT);
 }
 
 function missingTimeConfirmationFields(task) {
@@ -731,7 +735,7 @@ async function loadBackendState() {
     } else {
       tasks = [];
     }
-    const chatResponse = await api(`/api/chat/turns?user_id=${currentUserId()}&limit=20`);
+    const chatResponse = await api(`/api/chat/turns?user_id=${currentUserId()}&limit=${CHAT_CONTEXT_TURN_LIMIT}`);
     chatMessages = chatMessagesFromTurns(chatResponse.turns || []);
     activeSelectionMode = "auto";
     activeId = defaultActiveTaskId();

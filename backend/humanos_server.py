@@ -27,6 +27,7 @@ DATA_DIR = ROOT / "data"
 DB_PATH = DATA_DIR / "humanos.db"
 VECTOR_DIMS = 64
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+CHAT_CONTEXT_TURN_LIMIT = 50
 
 
 def now_ms() -> int:
@@ -944,7 +945,7 @@ class Store:
         self.log_event(user_id, "chat_turn_saved", {"turn_id": turn["id"], "intent": intent, "task_ids": task_ids})
         return turn
 
-    def list_chat_turns(self, user_id: str, limit: int = 20) -> list[dict]:
+    def list_chat_turns(self, user_id: str, limit: int = CHAT_CONTEXT_TURN_LIMIT) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM chat_turns WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
@@ -1096,7 +1097,7 @@ class Store:
         return [self.task_row(row) for row in rows]
 
     def build_chat_context(self, user_id: str, text: str) -> dict:
-        turns = self.list_chat_turns(user_id, limit=6)
+        turns = self.list_chat_turns(user_id, limit=CHAT_CONTEXT_TURN_LIMIT)
         active_tasks = [
             task for task in self.list_tasks(user_id)
             if task.get("status") not in {"completed", "terminated"}
@@ -1107,7 +1108,7 @@ class Store:
             [
                 text,
                 " ".join(task.get("title", "") for task in recent_tasks),
-                " ".join(turn.get("user_text", "") for turn in turns[-3:]),
+                " ".join(turn.get("user_text", "") for turn in turns[-10:]),
             ]
         )
         memories = self.search_memories(user_id, query, top_k=5)
@@ -1119,7 +1120,7 @@ class Store:
                     "intent": turn.get("intent"),
                     "task_ids": turn.get("task_ids", []),
                 }
-                for turn in turns[-4:]
+                for turn in turns[-CHAT_CONTEXT_TURN_LIMIT:]
             ],
             "recent_tasks": [
                 {
