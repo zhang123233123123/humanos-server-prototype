@@ -375,7 +375,7 @@ function localFallbackTasksFromText(text) {
     .split(/然后|最后|再|接着|之后|，|,|。|；|;/)
     .map((segment) => segment.replace(/^[，,。；;、\s]+|[，,。；;、\s]+$/g, ""))
     .filter(Boolean);
-  const pattern = new RegExp(`((?:${relativeDay})?\\s*(?:${timeWord})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|整理|完成|处理|准备|提交|看|做)[^，。；;]*)`, "g");
+  const pattern = new RegExp(`((?:${relativeDay})?\\s*(?:${timeWord})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)[^，。；;]*)`, "g");
   let segments = [];
   let match;
   while ((match = pattern.exec(clean))) {
@@ -405,7 +405,7 @@ function localFallbackTasksFromText(text) {
     const title = segment
       .replace(new RegExp(relativeDay, "g"), "")
       .replace(new RegExp(timeWord, "g"), "")
-      .replace(/然后|最后|先|需要|进行|我们的|这个|的/g, "")
+      .replace(/然后|最后|先|需要|进行|我们的|我们|这个|的|吧/g, "")
       .replace(/\s+/g, "")
       .replace(/^[，,。；;、]+|[，,。；;、]+$/g, "")
       || segment;
@@ -451,6 +451,39 @@ function dayIndexFromDue(due = "") {
   if (/明天/.test(text)) return new Date(Date.now() + 86400000).getDay() === 0 ? 6 : new Date(Date.now() + 86400000).getDay() - 1;
   if (/后天/.test(text)) return new Date(Date.now() + 2 * 86400000).getDay() === 0 ? 6 : new Date(Date.now() + 2 * 86400000).getDay() - 1;
   return null;
+}
+
+function normalizedSlotForDue(task) {
+  const slot = task?.slot;
+  if (!slot) return null;
+  const durationHours = taskDurationHours(task);
+  const dueStart = parseDueStartHour(task.due);
+  if (dueStart !== null && Math.abs(Number(slot.start) - dueStart) > 0.01) {
+    return {
+      ...slot,
+      start: dueStart,
+      end: dueStart + durationHours,
+      correctedFromDue: true
+    };
+  }
+  const start = Number(slot.start);
+  const end = Number(slot.end);
+  return {
+    ...slot,
+    start,
+    end: Number.isFinite(end) && end > start ? end : start + durationHours
+  };
+}
+
+function dueWithStartHour(due = "", startHour = null) {
+  if (startHour === null || startHour === undefined || Number.isNaN(Number(startHour))) return due || "未设置";
+  const timeText = formatHour(startHour);
+  const clean = String(due || "").trim();
+  const hasDay = /(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|\d{1,2}[/-]\d{1,2}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/.test(clean);
+  const timePattern = /(早上|上午|中午|下午|晚上)?\s*\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}/;
+  if (timePattern.test(clean)) return clean.replace(timePattern, timeText);
+  if (hasDay) return `${clean} ${timeText}`;
+  return `今天 ${timeText}`;
 }
 
 function escapeHtml(value) {
@@ -543,7 +576,7 @@ function normalizeDuration(task) {
 
 function normalizeBackendTask(task) {
   const checkpoints = task.checkpoints || [];
-  return {
+  const normalized = {
     id: task.id,
     title: task.title,
     due: task.due || "未设置",
@@ -560,6 +593,8 @@ function normalizeBackendTask(task) {
     switch_cost: task.switch_cost,
     reentry_cost: task.reentry_cost
   };
+  normalized.slot = normalizedSlotForDue(normalized);
+  return normalized;
 }
 
 function checkpointText(task, keywords) {
@@ -732,6 +767,13 @@ async function loadBackendState() {
     const taskResponse = await api(`/api/tasks?user_id=${currentUserId()}`);
     if (taskResponse.tasks.length) {
       tasks = taskResponse.tasks.map(normalizeBackendTask);
+      const correctedTasks = tasks.filter((task) => task.slot?.correctedFromDue);
+      correctedTasks.forEach((task) => {
+        delete task.slot.correctedFromDue;
+      });
+      if (correctedTasks.length) {
+        await Promise.all(correctedTasks.map((task) => patchBackendTask(task).catch(() => null)));
+      }
     } else {
       tasks = [];
     }
@@ -965,6 +1007,7 @@ async function moveTaskToHour(taskId, startHour) {
     end: start + taskDurationHours(task),
     color: colorForTask(task)
   };
+  task.due = dueWithStartHour(task.due, start);
   if (task.status === "queued") task.status = "scheduled";
   selectTask(task.id, "manual");
   await patchBackendTask(task);
@@ -1254,10 +1297,18 @@ function renderCalendar() {
     event.dataset.id = task.id;
     event.draggable = true;
     const label = block.source === "pending" ? "待确认" : block.source === "suggested" ? "待确认" : task.status === "completed" ? "已完成" : "执行窗口";
-    event.innerHTML = `<h3>${task.title}</h3><p>${label} · ${formatHour(block.start)}-${formatHour(block.end)}</p>`;
+    event.innerHTML = `
+      <button class="event-delete" type="button" aria-label="删除 ${escapeHtml(task.title)}">×</button>
+      <h3>${escapeHtml(task.title)}</h3>
+      <p>${label} · ${formatHour(block.start)}-${formatHour(block.end)}</p>
+    `;
     event.addEventListener("dragstart", (dragEvent) => {
       dragEvent.dataTransfer.setData("text/task-id", task.id);
       dragEvent.dataTransfer.effectAllowed = "move";
+    });
+    event.querySelector(".event-delete")?.addEventListener("click", (deleteEvent) => {
+      deleteEvent.stopPropagation();
+      deleteTaskById(task.id);
     });
     event.addEventListener("click", () => {
       selectTask(task.id, "manual");
@@ -1283,7 +1334,8 @@ function renderWeekCalendar() {
           ${blocksByDay[dayIndex].length ? blocksByDay[dayIndex]
             .map((block) => `
               <article class="week-event ${block.color} ${taskStatusClass(block.task, block)}" data-id="${block.task.id}">
-                <strong>${block.task.title}</strong>
+                <button class="event-delete" type="button" aria-label="删除 ${escapeHtml(block.task.title)}">×</button>
+                <strong>${escapeHtml(block.task.title)}</strong>
                 <span>${formatHour(block.start)}-${formatHour(block.end)} · ${block.source === "pending" || block.source === "suggested" ? "待确认" : `${block.task.duration} 分钟`}</span>
               </article>
             `).join("") : `<p>暂无安排</p>`}
@@ -1292,6 +1344,10 @@ function renderWeekCalendar() {
     </div>
   `;
   document.querySelectorAll(".week-event").forEach((event) => {
+    event.querySelector(".event-delete")?.addEventListener("click", (deleteEvent) => {
+      deleteEvent.stopPropagation();
+      deleteTaskById(event.dataset.id);
+    });
     event.addEventListener("click", () => {
       selectTask(event.dataset.id, "manual");
       openTaskDialog(selectedTask());
@@ -1318,14 +1374,32 @@ function renderActiveTask() {
   }
   resumeSubtitle.textContent = task.title;
   modePill.textContent = statusLabel(task);
+  const windowData = normalizeContextWindow(task);
+  const block = taskCalendarBlock(task);
+  const scheduleText = block ? `${formatHour(block.start)}-${formatHour(block.end)}` : "尚未进入日历";
   activeTask.innerHTML = `
-    <h3>${task.title}</h3>
-    <p>${task.context}</p>
+    <h3>${escapeHtml(task.title)}</h3>
+    <p>${escapeHtml(task.context || "暂无任务说明。")}</p>
     <div class="task-meta" style="margin-top:12px">
       <span class="tag ${priorityClass(task.priority)}">${task.priority}优先级</span>
       <span class="tag">${task.duration} 分钟</span>
-      <span class="tag">${task.due}</span>
+      <span class="tag">${escapeHtml(task.due)}</span>
+      <span class="tag">${scheduleText}</span>
       <span class="tag">${statusLabel(task)}</span>
+    </div>
+    <div class="active-task-context">
+      <article>
+        <span>当前进展</span>
+        <p>${escapeHtml(windowData.progress)}</p>
+      </article>
+      <article>
+        <span>回来第一步</span>
+        <p>${escapeHtml(windowData.nextStep)}</p>
+      </article>
+      <article>
+        <span>开放问题</span>
+        <p>${escapeHtml(windowData.openQuestions)}</p>
+      </article>
     </div>
     <div class="task-actions">
       <button class="ghost" type="button" data-action="edit-active-task">编辑</button>
@@ -1506,7 +1580,7 @@ function renderPendingSchedule() {
   }
   const lines = pendingSchedulePlan.plan_patch.map((block) => {
     const task = tasks.find((item) => item.id === block.task_id);
-    return `${task?.title || "任务"}：${block.start}:00-${block.end}:00`;
+    return `${task?.title || "任务"}：${formatHour(block.start)}-${formatHour(block.end)}`;
   });
   pendingSchedule.classList.remove("hidden");
   pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || "已生成建议安排。"} ${lines.join("；")}`;
@@ -1594,6 +1668,7 @@ confirmScheduleBtn.addEventListener("click", async () => {
     if (target) {
       target.status = target.status === "paused" ? "paused" : "scheduled";
       target.slot = { start: block.start, end: block.end, color: block.color || "blue" };
+      target.due = dueWithStartHour(target.due, block.start);
       await patchBackendTask(target);
     }
   }

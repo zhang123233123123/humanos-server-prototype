@@ -567,6 +567,7 @@ class Store:
         clean = text.strip()
         if not clean:
             raise ValueError("task text is required")
+        expected_count = self.estimated_task_count(clean)
         explicit_schedule_tasks = self.parse_explicit_schedule_lines(user_id, clean)
         if explicit_schedule_tasks:
             return explicit_schedule_tasks
@@ -612,7 +613,7 @@ class Store:
                 raw_tasks = llm_result.get("tasks") if isinstance(llm_result.get("tasks"), list) else [llm_result]
             else:
                 raw_tasks = []
-            tasks = []
+            payloads = []
             for item in raw_tasks[:8]:
                 if not isinstance(item, dict):
                     continue
@@ -624,11 +625,42 @@ class Store:
                     "context": item.get("context") or clean,
                 }
                 payload["parser"] = "deepseek"
-                tasks.append(self.create_task(user_id, payload))
-            if tasks:
+                payloads.append(payload)
+            if expected_count > 1 and len(payloads) < expected_count:
+                self.log_event(
+                    user_id,
+                    "task_parse_fallback",
+                    {
+                        "reason": "llm_under_split",
+                        "expected_count": expected_count,
+                        "llm_count": len(payloads),
+                        "text": clean[:500],
+                    },
+                )
+                return self.local_parse_tasks_from_text(user_id, clean)
+            if payloads:
+                tasks = [self.create_task(user_id, payload) for payload in payloads]
                 return tasks
 
         return self.local_parse_tasks_from_text(user_id, clean)
+
+    def estimated_task_count(self, text: str) -> int:
+        clean = re.sub(r"\s+", "", text)
+        if not clean:
+            return 0
+        clock_count = len(re.findall(r"(?:早上|上午|中午|下午|晚上)?\d{1,2}(?:[:：]\d{2}|点|时)", clean))
+        action_segments = [
+            part.strip("，,。；;、")
+            for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;|、)", clean)
+            if part.strip("，,。；;、")
+        ]
+        action_count = sum(
+            1
+            for part in action_segments
+            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论|取|拿|办|买|发)", part)
+        )
+        serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", clean))
+        return max(clock_count, action_count, serial_count, 1)
 
     def looks_like_compact_multi_task_list(self, text: str) -> bool:
         parts = [
@@ -641,7 +673,7 @@ class Store:
         action_count = sum(
             1
             for part in parts
-            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论)", part)
+            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论|取|拿|办|买|发)", part)
         )
         followup_markers = re.search(r"第[一二三四五六七八九\d]+|这个|那个|都是|每个", text)
         return action_count >= 2 and not followup_markers
@@ -703,7 +735,7 @@ class Store:
             for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;)", clean)
             if part.strip(" ，,。；;、")
         ]
-        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|整理|完成|处理|准备|提交|看|做)[^，。；;]*)")
+        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)[^，。；;]*)")
         segments = [match.group(1).strip(" ，,。；;、") for match in segment_pattern.finditer(clean)]
         if len(connector_segments) > len(segments):
             segments = connector_segments
@@ -736,7 +768,7 @@ class Store:
                 any(word in segment for word in ["紧急", "重要", "ddl", "deadline", "优先级高", "高优先级"])
                 or re.search(r"优先级\s*[:：]?\s*高", segment)
             ) else "中"
-            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的)", "", segment)
+            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧)", "", segment)
             title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
             task = self.create_task(
                 user_id,
@@ -1626,8 +1658,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = self.read_json()
                 user_id = payload.get("user_id", "demo")
                 store.ensure_profile(user_id)
-                task = store.parse_task_from_text(user_id, payload.get("text", ""))
-                self.send_json({"tasks": [task]}, status=201)
+                tasks = store.parse_tasks_from_text(user_id, payload.get("text", ""))
+                self.send_json({"tasks": tasks}, status=201)
                 return
 
             if path == "/api/chat/turn" and method == "POST":
