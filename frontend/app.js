@@ -1419,6 +1419,27 @@ function dueWithStartHour(due = "", startHour = null) {
   return `今天 ${timeText}`;
 }
 
+function dueWithWeekday(due = "", dayIndex = null) {
+  if (dayIndex === null || dayIndex === undefined || Number.isNaN(Number(dayIndex))) return due || "未设置";
+  const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const nextDay = weekdays[Math.min(Math.max(Number(dayIndex), 0), 6)];
+  const clean = String(due || "").trim();
+  if (!clean || clean === "未设置" || clean === t("notSet")) return nextDay;
+  if (/(?:周|星期)[一二三四五六日天]/.test(clean)) {
+    return clean.replace(/(?:周|星期)[一二三四五六日天]/, nextDay);
+  }
+  if (/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(clean)) {
+    return clean.replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, nextDay);
+  }
+  if (/今天|今晚|明天|后天/.test(clean)) {
+    return clean.replace(/今天|今晚|明天|后天/, nextDay);
+  }
+  if (/\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}[/-]\d{1,2}/.test(clean)) {
+    return `${nextDay} ${clean}`;
+  }
+  return `${nextDay} ${clean}`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -1987,9 +2008,15 @@ function visibleCalendarBlocks() {
   return [...taskBlocks, ...pendingBlocks].sort((a, b) => a.start - b.start);
 }
 
+function calendarBlockDayIndex(block) {
+  if (block?.dayIndex !== null && block?.dayIndex !== undefined) return Number(block.dayIndex);
+  if (block?.day_index !== null && block?.day_index !== undefined) return Number(block.day_index);
+  return dayIndexFromDue(block?.task?.due);
+}
+
 function todayCalendarBlocks() {
   const todayIndex = dayIndexFromDue("今天");
-  return visibleCalendarBlocks().filter((block) => dayIndexFromDue(block.task.due) === todayIndex);
+  return visibleCalendarBlocks().filter((block) => calendarBlockDayIndex(block) === todayIndex);
 }
 
 function overlapLayout(blocks) {
@@ -2042,12 +2069,19 @@ function taskStatusClass(task, block) {
 async function moveTaskToHour(taskId, startHour) {
   const task = tasks.find((item) => item.id === taskId);
   if (!task) return;
+  await moveTaskToCalendarPosition(taskId, dayIndexFromDue(task.due) ?? dayIndexFromDue("今天"), startHour);
+}
+
+async function moveTaskToCalendarPosition(taskId, dayIndex, startHour) {
+  const task = tasks.find((item) => item.id === taskId);
+  if (!task) return;
   const start = clampTaskStart(task, startHour);
   const pendingBlock = pendingBlockForTask(taskId);
   if (pendingBlock) {
     pendingBlock.start = start;
     pendingBlock.end = start + taskDurationHours(task);
     pendingBlock.color = pendingBlock.color || colorForTask(task);
+    pendingBlock.dayIndex = dayIndex;
     selectTask(task.id, "manual");
     addChatMessage(
       "ai",
@@ -2064,6 +2098,8 @@ async function moveTaskToHour(taskId, startHour) {
     end: start + taskDurationHours(task),
     color: colorForTask(task)
   };
+  task.due = dueWithWeekday(task.due, dayIndex);
+  task.deadline = task.due;
   if (taskScheduleType(task) === "fixed_event") {
     task.due = dueWithStartHour(task.due, start);
     task.deadline = task.due;
@@ -2233,7 +2269,7 @@ function dayDistanceFromToday(dayIndex) {
 }
 
 function activeCandidateScore(block) {
-  const dayDistance = dayDistanceFromToday(dayIndexFromDue(block.task.due));
+  const dayDistance = dayDistanceFromToday(calendarBlockDayIndex(block));
   const nowHour = currentHourFloat();
   const start = Number(block.start);
   const end = Number(block.end);
@@ -2421,17 +2457,17 @@ function renderWeekCalendar() {
   const allBlocks = visibleCalendarBlocks();
   const blocksByDay = days.map((_, dayIndex) => {
     return allBlocks
-      .filter((block) => dayIndexFromDue(block.task.due) === dayIndex)
+      .filter((block) => calendarBlockDayIndex(block) === dayIndex)
       .sort((a, b) => a.start - b.start);
   });
   calendar.innerHTML = `
     <div class="week-grid">
       ${days.map((day, dayIndex) => `
-        <section class="week-day">
+        <section class="week-day" data-day-index="${dayIndex}">
           <h3>${day}</h3>
           ${blocksByDay[dayIndex].length ? blocksByDay[dayIndex]
             .map((block) => `
-              <article class="week-event ${block.color} ${taskStatusClass(block.task, block)}" data-id="${block.task.id}">
+              <article class="week-event ${block.color} ${taskStatusClass(block.task, block)}" data-id="${block.task.id}" draggable="true">
                 <button class="event-delete" type="button" aria-label="${t("deleteTask")} ${escapeHtml(block.task.title)}">×</button>
                 <strong>${escapeHtml(block.task.title)}</strong>
                 <span>${formatHour(block.start)}-${formatHour(block.end)} · ${block.source === "pending" || block.source === "suggested" ? t("pending") : `${block.task.duration} ${t("minutes")}`}</span>
@@ -2441,7 +2477,34 @@ function renderWeekCalendar() {
       `).join("")}
     </div>
   `;
+  document.querySelectorAll(".week-day").forEach((dayColumn) => {
+    dayColumn.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      dayColumn.classList.add("drag-over");
+    });
+    dayColumn.addEventListener("dragleave", (event) => {
+      if (!dayColumn.contains(event.relatedTarget)) dayColumn.classList.remove("drag-over");
+    });
+    dayColumn.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dayColumn.classList.remove("drag-over");
+      const taskId = event.dataTransfer.getData("text/task-id");
+      if (!taskId) return;
+      const dayIndex = Number(dayColumn.dataset.dayIndex);
+      moveTaskToCalendarPosition(taskId, dayIndex, dropHourFromWeekColumn(event, dayColumn));
+    });
+  });
   document.querySelectorAll(".week-event").forEach((event) => {
+    event.addEventListener("dragstart", (dragEvent) => {
+      dragEvent.dataTransfer.setData("text/task-id", event.dataset.id);
+      dragEvent.dataTransfer.effectAllowed = "move";
+      event.classList.add("dragging");
+    });
+    event.addEventListener("dragend", () => {
+      event.classList.remove("dragging");
+      calendar.querySelectorAll(".week-day.drag-over").forEach((column) => column.classList.remove("drag-over"));
+    });
     event.querySelector(".event-delete")?.addEventListener("click", (deleteEvent) => {
       deleteEvent.stopPropagation();
       deleteTaskById(event.dataset.id);
@@ -2451,6 +2514,16 @@ function renderWeekCalendar() {
       openTaskDialog(selectedTask());
     });
   });
+}
+
+function dropHourFromWeekColumn(event, dayColumn) {
+  const rect = dayColumn.getBoundingClientRect();
+  const headerHeight = dayColumn.querySelector("h3")?.getBoundingClientRect().height || 26;
+  const usableTop = rect.top + headerHeight + 10;
+  const usableHeight = Math.max(rect.height - headerHeight - 20, 1);
+  const offset = Math.min(Math.max(event.clientY - usableTop, 0), usableHeight);
+  const fraction = offset / usableHeight;
+  return roundHourToStep(CALENDAR_START_HOUR + fraction * (CALENDAR_END_HOUR - CALENDAR_START_HOUR));
 }
 
 function formatHour(value) {
@@ -2895,6 +2968,10 @@ confirmScheduleBtn.addEventListener("click", async () => {
     if (target) {
       target.status = target.status === "paused" ? "paused" : "scheduled";
       target.slot = { start: block.start, end: block.end, color: block.color || "blue" };
+      if (block.dayIndex !== null && block.dayIndex !== undefined) {
+        target.due = dueWithWeekday(target.due, block.dayIndex);
+        target.deadline = target.due;
+      }
       if (taskScheduleType(target) === "fixed_event") {
         target.due = dueWithStartHour(target.due, block.start);
         target.deadline = target.due;
