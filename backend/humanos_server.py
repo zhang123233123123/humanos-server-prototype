@@ -131,8 +131,27 @@ def english_day_time_in_text(text: str) -> str:
     if re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I):
         every = re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I)
         return every.group(0) if every else "every day"
-    if time_match:
+    if time_match and re.search(r"\b(am|pm|morning|afternoon|evening|night|noon)\b", time_match.group(0), re.I):
         return time_match.group(0)
+    return ""
+
+
+def chinese_day_time_in_text(text: str) -> str:
+    clean = str(text or "")
+    day = r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])"
+    clock = r"((?:早上|上午|中午|下午|晚上)?\s*\d{1,2}\s*(?:[:：]\s*\d{2}|点|时))"
+    day_clock = re.search(rf"{day}\s*{clock}", clean)
+    if day_clock:
+        return re.sub(r"\s+", "", day_clock.group(0))
+    clock_day = re.search(rf"{clock}\s*{day}", clean)
+    if clock_day:
+        return re.sub(r"\s+", "", clock_day.group(0))
+    day_period = re.search(rf"{day}\s*(早上|上午|中午|下午|晚上)", clean)
+    if day_period:
+        return re.sub(r"\s+", "", day_period.group(0))
+    recurring = re.search(r"每天\s*(早上|上午|中午|下午|晚上)", clean)
+    if recurring:
+        return recurring.group(0)
     return ""
 
 
@@ -149,15 +168,23 @@ def recurring_due_values(segment: str, due: str) -> list[str]:
         if period == "day":
             period = "afternoon"
         day_names = ENGLISH_WEEKDAY_NAMES
+        period_time = period
     else:
         period = chinese.group(1) if chinese and chinese.group(1) else "下午"
         day_names = CHINESE_WEEKDAY_NAMES
+        period_time = {
+            "早上": "09:00",
+            "上午": "09:00",
+            "中午": "12:00",
+            "下午": "14:00",
+            "晚上": "19:00",
+        }.get(period, "14:00")
 
     today = date.today()
     values = []
     for offset in range(7):
         current = today + timedelta(days=offset)
-        values.append(f"{day_names[current.weekday()]} {period}")
+        values.append(f"{day_names[current.weekday()]} {period_time}")
     return values
 
 
@@ -1106,8 +1133,9 @@ class Store:
             if period_match:
                 last_period = period_match.group(0)
             english_due = english_day_time_in_text(segment)
+            chinese_due = chinese_day_time_in_text(segment)
             due_match = re.search(rf"({relative_day}\s*{time_word}|{time_word}\s*{relative_day}|{time_word}|{relative_day})", segment, re.I)
-            due = english_due or (due_match.group(0) if due_match else "未设置")
+            due = english_due or chinese_due or (due_match.group(0) if due_match else "未设置")
             separate_time_match = re.search(time_word, segment)
             if due != "未设置" and day_match and separate_time_match and not re.search(time_word, due):
                 due = f"{day_match.group(0)}{separate_time_match.group(0)}"
@@ -1123,6 +1151,7 @@ class Store:
                 or re.search(r"优先级\s*[:：]?\s*高", segment)
             ) else "中"
             title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧|之前|以前|前)", "", segment)
+            title_text = re.sub(r"(这周|本周|我需要|我要|我在|我|在|并且|而且|以及)", "", title_text)
             title_text = re.sub(
                 r"\b(i|we|the|a|an|to|at|on|by|before|after|need|needs|have|has|plan|planned|want|"
                 r"finish|complete|do|work|work on|eat)\b",

@@ -1309,11 +1309,11 @@ function parseDueStartHour(due = "") {
 }
 
 function hasDueDate(due = "") {
-  return /(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|\d{1,2}[/-]\d{1,2}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/.test(String(due || ""));
+  return /(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|\b(today|tonight|tomorrow|tmr|tmrw|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\d{1,2}[/-]\d{1,2}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/i.test(String(due || ""));
 }
 
 function hasDueClock(due = "") {
-  return /\d{1,2}[:：]\d{2}|(上午|下午|晚上|早上|中午)?\s*\d{1,2}\s*(点|时)/.test(String(due || ""));
+  return /\d{1,2}[:：]\d{2}\s*(am|pm)?|\d{1,2}\s*(am|pm)|(上午|下午|晚上|早上|中午)\s*\d{1,2}\s*(点|时)|\d{1,2}\s*(点|时)|\b(morning|afternoon|evening|night|noon)\b|早上|上午|中午|下午|晚上/i.test(String(due || ""));
 }
 
 function taskScheduleType(task = {}) {
