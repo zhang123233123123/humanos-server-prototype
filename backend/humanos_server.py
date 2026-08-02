@@ -890,7 +890,12 @@ class Store:
         action_count = sum(
             1
             for part in action_segments
-            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发)", part)
+            if re.search(
+                r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发|"
+                r"\b(finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)",
+                part,
+                re.I,
+            )
         )
         serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", clean))
         return max(clock_count, action_count, serial_count, 1)
@@ -906,7 +911,12 @@ class Store:
         action_count = sum(
             1
             for part in parts
-            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发)", part)
+            if re.search(
+                r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发|"
+                r"\b(finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)",
+                part,
+                re.I,
+            )
         )
         followup_markers = re.search(r"第[一二三四五六七八九\d]+|这个|那个|都是|每个", text)
         return action_count >= 2 and not followup_markers
@@ -971,7 +981,10 @@ class Store:
             for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;)", clean)
             if part.strip(" ，,。；;、")
         ]
-        action_pattern = r"(会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)"
+        action_pattern = (
+            r"(会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发|"
+            r"\b(?:finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)"
+        )
         merged_segments: list[str] = []
         for part in connector_segments:
             has_action = re.search(action_pattern, part)
@@ -1015,9 +1028,26 @@ class Store:
                 or re.search(r"优先级\s*[:：]?\s*高", segment)
             ) else "中"
             title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧|之前|以前|前)", "", segment)
+            title_text = re.sub(
+                r"\b(i|we|the|a|an|to|at|on|by|before|after|need|needs|have|has|plan|planned|want|"
+                r"finish|complete|do|work|work on|eat)\b",
+                " ",
+                title_text,
+                flags=re.I,
+            )
+            title_text = re.sub(
+                r"\b(january|february|march|april|may|june|july|august|september|october|november|december|"
+                r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b\s*\d{1,2}",
+                " ",
+                title_text,
+                flags=re.I,
+            )
             title_text = re.sub(r"\d+\s*(个)?\s*(分钟|min|小时|h)", "", title_text, flags=re.I)
             title_text = re.sub(r"(大概|大约|预计|左右)", "", title_text)
-            title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
+            if re.search(r"[A-Za-z]", title_text):
+                title_text = re.sub(r"\s+", " ", title_text).strip(" ，,。；;、") or segment
+            else:
+                title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
             task = self.create_task(
                 user_id,
                 {
@@ -1136,6 +1166,115 @@ class Store:
             confidence += 0.04
         return round(max(0.05, min(confidence, 0.95)), 2)
 
+    def text_mentions_task(self, text: str, task: dict) -> bool:
+        lower_text = text.lower()
+        alias_pairs = [
+            ("system design", "系统设计"),
+            ("lunch", "午饭"),
+            ("breakfast", "早饭"),
+            ("dinner", "晚饭"),
+            ("final examination", "期末考试"),
+            ("final exam", "期末考试"),
+            ("exam", "考试"),
+        ]
+        searchable_text = lower_text
+        for english, chinese in alias_pairs:
+            if english in lower_text:
+                searchable_text += f" {chinese}"
+            if chinese in text:
+                searchable_text += f" {english}"
+        title = str(task.get("title") or "").strip()
+        context_text = " ".join(str(task.get(key) or "") for key in ["context", "due", "deadline"]).strip()
+        searchable = " ".join([title, context_text]).strip()
+        if not title and not context_text:
+            return False
+        lower_title = title.lower()
+        if lower_title and lower_title in searchable_text:
+            return True
+        stop_words = {
+            "the", "and", "for", "with", "need", "needs", "have", "has", "plan",
+            "finish", "complete", "task", "today", "tomorrow", "august",
+            "move", "reschedule", "put", "schedule", "change", "set", "start", "shift",
+        }
+        title_tokens = [
+            token for token in re.findall(r"[A-Za-z0-9]+", lower_title)
+            if len(token) >= 3 and token not in stop_words
+        ]
+        title_hits = [token for token in title_tokens if token in searchable_text]
+        if len(title_tokens) == 1 and title_hits:
+            return True
+        if len(title_hits) >= 2:
+            return True
+        context_tokens = [
+            token for token in re.findall(r"[A-Za-z0-9]+", context_text.lower())
+            if len(token) >= 3 and token not in stop_words
+        ]
+        context_hits = [token for token in context_tokens if token in searchable_text]
+        if len(context_hits) >= 2:
+            return True
+        chinese_title = "".join(re.findall(r"[\u4e00-\u9fff]", searchable))
+        if len(chinese_title) >= 2:
+            fragments = {
+                chinese_title[offset : offset + 2]
+                for offset in range(len(chinese_title) - 1)
+            }
+            if any(fragment in searchable_text for fragment in fragments):
+                return True
+        return False
+
+    def resolve_task_reference_context(self, text: str, chat_context: dict) -> dict:
+        recent_tasks = (chat_context or {}).get("recent_tasks") or []
+        active_tasks = (chat_context or {}).get("active_tasks") or []
+        candidate_tasks = recent_tasks + [
+            task for task in active_tasks
+            if task.get("id") not in {recent.get("id") for recent in recent_tasks}
+        ]
+        lower_text = text.lower()
+        has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
+        has_time_range = parse_clock_range(text) is not None
+        explicit_reference = re.search(
+            r"(这个|那个|它|该任务|上一条|上一个|刚刚|刚才|第\s*[一二两三四五六七八九\d]\s*个?|"
+            r"\b(it|this|that|that task|the task|previous|last one|same task|first one|second one)\b)",
+            lower_text,
+            re.I,
+        )
+        edit_action = re.search(
+            r"(改到|放到|安排到|移到|移动到|调整到|提前|推迟|换到|开始|"
+            r"\b(move|reschedule|put|schedule|change|set|start|shift)\b)",
+            lower_text,
+            re.I,
+        )
+        new_topic = re.search(
+            r"\b(i\s+also\s+have|also\s+have|i\s+have|i\s+plan\s+to|plan\s+to|need\s+to|have\s+to|"
+            r"eat|lunch|breakfast|dinner|meal|final\s+exam|examination|exam|deadline|due|by)\b",
+            lower_text,
+        )
+        title_matches = [task for task in candidate_tasks if self.text_mentions_task(text, task)]
+        evidence = {
+            "has_time": bool(has_time),
+            "has_time_range": bool(has_time_range),
+            "explicit_reference": bool(explicit_reference),
+            "edit_action": bool(edit_action),
+            "new_topic": bool(new_topic),
+            "title_matches": [task.get("id") for task in title_matches],
+        }
+        if self.looks_like_compact_multi_task_list(text):
+            return {"mode": "new_task", "confidence": 0.84, "target_tasks": [], "evidence": evidence}
+        if new_topic and not explicit_reference and not title_matches:
+            return {"mode": "new_task", "confidence": 0.82, "target_tasks": [], "evidence": evidence}
+        if title_matches and (has_time or has_time_range or edit_action):
+            return {"mode": "follow_up", "confidence": 0.86, "target_tasks": title_matches, "evidence": evidence}
+        if explicit_reference and (has_time or has_time_range or edit_action) and recent_tasks:
+            return {"mode": "follow_up", "confidence": 0.78, "target_tasks": recent_tasks, "evidence": evidence}
+        if edit_action and has_time:
+            return {"mode": "ambiguous", "confidence": 0.42, "target_tasks": [], "evidence": evidence}
+        if has_time and recent_tasks and not explicit_reference and not title_matches and not edit_action:
+            compact = re.sub(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}|at|to|on|今天|明天|周[一二三四五六日天]", "", lower_text)
+            compact = re.sub(r"[\s,，。；;:：-]+", "", compact)
+            if len(compact) <= 8:
+                return {"mode": "ambiguous", "confidence": 0.38, "target_tasks": [], "evidence": evidence}
+        return {"mode": "new_task", "confidence": 0.72, "target_tasks": [], "evidence": evidence}
+
     def chat_turn(self, user_id: str, payload: dict) -> dict:
         text = payload.get("text", "").strip()
         if not text:
@@ -1154,12 +1293,38 @@ class Store:
                 "embedding_model": "humanos-local-hash-embedding-v1",
             },
         }
-        followup_tasks = self.parse_time_followup_for_recent_tasks(user_id, text, chat_context)
-        if followup_tasks:
-            response["tasks"] = followup_tasks
-            response["reply"] = f"我已把时间补充到上一轮 {len(followup_tasks)} 个任务上，并在右侧生成待确认安排。"
-            intent = "reschedule"
-            response["intent"] = intent
+        reference_context = self.resolve_task_reference_context(text, chat_context)
+        response["context"]["reference_resolution"] = reference_context
+        if reference_context["mode"] == "ambiguous":
+            if reference_context.get("evidence", {}).get("edit_action"):
+                response["reply"] = "我识别到你想调整时间，但没能确定要修改哪一个已有任务。请补充任务名称，或说“把上一条改到这个时间”。"
+            else:
+                response["reply"] = "这条只包含时间，我不确定是要修改上一条任务，还是新建一个事件。请补一句任务名称或说“把上一条改到这个时间”。"
+            response["intent"] = "other"
+            response["confidence"] = reference_context["confidence"]
+            features = {**features, "confidence": response["confidence"], "reference_resolution": reference_context}
+            response["features"] = features
+            self.save_chat_turn(
+                user_id=user_id,
+                user_text=text,
+                assistant_reply=response["reply"],
+                intent=response["intent"],
+                features=features,
+                task_ids=[],
+            )
+            return response
+        if reference_context["mode"] == "follow_up":
+            followup_tasks = self.parse_time_followup_for_recent_tasks(
+                user_id,
+                text,
+                chat_context,
+                reference_context.get("target_tasks") or [],
+            )
+            if followup_tasks:
+                response["tasks"] = followup_tasks
+                response["reply"] = f"我已根据上下文把时间更新到 {len(followup_tasks)} 个已有任务上，并在右侧生成待确认安排。"
+                intent = "reschedule"
+                response["intent"] = intent
         lower_text = text.lower()
         task_keywords = [
             "任务",
@@ -1327,25 +1492,20 @@ class Store:
                 return tasks
         return []
 
-    def parse_time_followup_for_recent_tasks(self, user_id: str, text: str, chat_context: dict | None = None) -> list[dict]:
-        recent_tasks = (chat_context or {}).get("recent_tasks") or self.latest_task_turn_tasks(user_id)
+    def parse_time_followup_for_recent_tasks(
+        self,
+        user_id: str,
+        text: str,
+        chat_context: dict | None = None,
+        target_tasks: list[dict] | None = None,
+    ) -> list[dict]:
+        recent_tasks = target_tasks or []
         if not recent_tasks:
             return []
         if self.looks_like_compact_multi_task_list(text):
             return []
-        lower_text = text.lower()
-        looks_like_new_task = re.search(
-            r"\b(i\s+also\s+have|also\s+have|i\s+have|i\s+plan\s+to|plan\s+to|need\s+to|have\s+to|eat|lunch|breakfast|dinner|meal|final\s+exam|examination|exam|deadline|due|by)\b",
-            lower_text,
-        )
         has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         if not has_time:
-            return []
-        has_reference_marker = re.search(r"(第[一二三四五六七八九\d]+|这个|那个|开始|在|都是|每个)", text)
-        has_time_range = parse_clock_range(text) is not None
-        if looks_like_new_task and not has_reference_marker and not has_time_range:
-            return []
-        if not has_reference_marker and not has_time_range and len(recent_tasks) != 1:
             return []
 
         day_match = re.search(r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])", text)
@@ -1404,19 +1564,14 @@ class Store:
                     if title and (title in part or any(token in part for token in title_tokens)):
                         target_index = index
                         break
-            if target_index is None:
+            if target_index is None and len(recent_tasks) == 1:
+                target_index = 0
+            if target_index is None and re.search(r"(都是|每个|all|each|every)", text, re.I):
                 for index, task in enumerate(recent_tasks):
                     if index in used_indexes:
                         continue
-                    due_text = str(task.get("due") or "")
-                    if not re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", due_text):
-                        target_index = index
-                        break
-            if target_index is None:
-                for index in range(len(recent_tasks)):
-                    if index not in used_indexes:
-                        target_index = index
-                        break
+                    target_index = index
+                    break
             if target_index is None or target_index >= len(recent_tasks):
                 continue
             used_indexes.add(target_index)
@@ -1499,6 +1654,17 @@ class Store:
                 for task in recent_tasks
             ],
             "active_task_titles": [task.get("title") for task in active_tasks[-8:]],
+            "active_tasks": [
+                {
+                    "id": task.get("id"),
+                    "title": task.get("title"),
+                    "due": task.get("due"),
+                    "duration": task.get("duration"),
+                    "status": task.get("status"),
+                    "context": task.get("context"),
+                }
+                for task in active_tasks[-12:]
+            ],
             "retrieved_memories": [
                 {
                     "source_type": memory.get("source_type"),
