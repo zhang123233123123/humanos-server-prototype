@@ -58,6 +58,7 @@ def retrieve_memory_node(store: Any):
 
 def parse_due_start_hour(due: str | None) -> float | None:
     text = str(due or "")
+    period_match = re.search(r"\b(morning|afternoon|evening|night|noon)\b", text, re.I)
     colon_match = re.search(r"(\d{1,2})[:：](\d{2})\s*(am|pm)?", text, re.I)
     if colon_match:
         hour = int(colon_match.group(1))
@@ -80,6 +81,9 @@ def parse_due_start_hour(due: str | None) -> float | None:
     else:
         standalone = re.fullmatch(r"\s*(\d{1,2})\s*", text)
         if not standalone:
+            if period_match:
+                period_word = period_match.group(1).lower()
+                return {"morning": 9.0, "afternoon": 14.0, "evening": 19.0, "night": 20.0, "noon": 12.0}.get(period_word)
             return None
         period = ""
         hour = int(standalone.group(1))
@@ -172,7 +176,9 @@ def due_day_rank(due: str | None) -> int:
     text = str(due or "")
     if re.search(r"今天|今晚", text):
         return 0
-    if "明天" in text:
+    if re.search(r"\b(today|tonight)\b", text, re.I):
+        return 0
+    if "明天" in text or re.search(r"\b(tomorrow|tmr|tmrw)\b", text, re.I):
         return 1
     if "后天" in text:
         return 2
@@ -197,6 +203,20 @@ def due_day_rank(due: str | None) -> int:
     if week_match:
         week_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
         target = week_map[week_match.group(1)]
+        today_index = date.today().weekday()
+        return (target - today_index) % 7
+    english_week_match = re.search(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", text, re.I)
+    if english_week_match:
+        week_map = {
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
+        }
+        target = week_map[english_week_match.group(1).lower()]
         today_index = date.today().weekday()
         return (target - today_index) % 7
     return 99
@@ -339,6 +359,11 @@ def find_plan_violations(
     available_windows = available_windows_for_profile(profile)
     low_energy_windows = profile_windows(profile, "low_energy_window")
     task_by_id = {task.get("id"): task for task in tasks}
+
+    def block_day_rank(block: dict[str, Any]) -> int:
+        task = task_by_id.get(block.get("task_id"), {})
+        return due_day_rank(task.get("deadline") or task.get("due"))
+
     violations: list[dict[str, Any]] = []
     for task in tasks:
         task_kind = schedule_task_type(task)
@@ -373,6 +398,8 @@ def find_plan_violations(
                         }
                     )
         for other in plan_patch[index + 1 :]:
+            if block_day_rank(block) != block_day_rank(other):
+                continue
             if not overlaps(block["start"], block["end"], other["start"], other["end"]):
                 continue
             if block.get("task_type") == "fixed_event" and other.get("task_type") == "fixed_event":

@@ -16,6 +16,7 @@ import re
 import sqlite3
 import time
 import uuid
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -103,11 +104,61 @@ def infer_duration_minutes(text: str) -> int | None:
     if chinese_match:
         amount = chinese_amounts[chinese_match.group(1)]
         return int(amount * 60) if chinese_match.group(2) == "小时" else int(amount)
-    match = re.search(r"(\d+)\s*(?:个\s*)?(分钟|min|小时|h)", text, re.I)
+    match = re.search(r"(\d+)\s*(?:个\s*)?(?:-|–|—)?\s*(分钟|minutes?|mins?|min|小时|hours?|hrs?|h)", text, re.I)
     if not match:
         return None
     amount = int(match.group(1))
-    return amount * 60 if match.group(2).lower() in {"小时", "h"} else amount
+    return amount * 60 if match.group(2).lower() in {"小时", "hour", "hours", "hr", "hrs", "h"} else amount
+
+
+ENGLISH_WEEKDAY = r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+ENGLISH_RELATIVE_DAY = rf"(?:today|tonight|tomorrow|tmr|tmrw|{ENGLISH_WEEKDAY})"
+ENGLISH_TIME_WORD = r"(?:morning|afternoon|evening|night|noon|\d{1,2}(?::\d{2})\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))"
+ENGLISH_WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+CHINESE_WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+def english_day_time_in_text(text: str) -> str:
+    clean = str(text or "")
+    day = re.search(ENGLISH_RELATIVE_DAY, clean, re.I)
+    time_match = re.search(ENGLISH_TIME_WORD, clean, re.I)
+    if day and time_match:
+        if day.start() <= time_match.start():
+            return f"{day.group(0)} {time_match.group(0)}"
+        return f"{time_match.group(0)} {day.group(0)}"
+    if day:
+        return day.group(0)
+    if re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I):
+        every = re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I)
+        return every.group(0) if every else "every day"
+    if time_match:
+        return time_match.group(0)
+    return ""
+
+
+def recurring_due_values(segment: str, due: str) -> list[str]:
+    text = str(segment or "")
+    due_text = str(due or "")
+    english = re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", f"{text} {due_text}", re.I)
+    chinese = re.search(r"每天\s*(早上|上午|中午|下午|晚上)?", f"{text} {due_text}")
+    if not english and not chinese:
+        return [due]
+
+    if english:
+        period = english.group(1).lower()
+        if period == "day":
+            period = "afternoon"
+        day_names = ENGLISH_WEEKDAY_NAMES
+    else:
+        period = chinese.group(1) if chinese and chinese.group(1) else "下午"
+        day_names = CHINESE_WEEKDAY_NAMES
+
+    today = date.today()
+    values = []
+    for offset in range(7):
+        current = today + timedelta(days=offset)
+        values.append(f"{day_names[current.weekday()]} {period}")
+    return values
 
 
 def chat_completion(messages: list[dict], temperature: float = 0.2) -> object | None:
@@ -149,22 +200,38 @@ def safe_duration_minutes(value: object, fallback: int = 60) -> int:
 
 
 def parse_clock_hour(value: str, inherited_period: str = "") -> float | None:
-    text = re.sub(r"\s+", "", str(value or ""))
+    raw = str(value or "")
+    text = re.sub(r"\s+", "", raw)
     period_match = re.search(r"(早上|上午|中午|下午|晚上)", text)
-    period = period_match.group(1) if period_match else inherited_period
-    colon_match = re.search(r"(\d{1,2})[:：](\d{2})", text)
+    english_period_match = re.search(r"\b(morning|afternoon|evening|night|noon)\b", raw, re.I)
+    period = period_match.group(1) if period_match else (english_period_match.group(1).lower() if english_period_match else inherited_period)
+    colon_match = re.search(r"(\d{1,2})[:：](\d{2})(am|pm)?", text, re.I)
     if colon_match:
         hour = int(colon_match.group(1))
         minute = int(colon_match.group(2))
+        meridiem = (colon_match.group(3) or "").lower()
     else:
-        hour_match = re.search(r"(\d{1,2})(点|时)", text)
+        hour_match = re.search(r"(\d{1,2})(点|时|am|pm)", text, re.I)
         if not hour_match:
+            if period == "noon":
+                return 12.0
+            if period in {"morning"}:
+                return 9.0
+            if period in {"afternoon"}:
+                return 14.0
+            if period in {"evening", "night"}:
+                return 19.0
             return None
         hour = int(hour_match.group(1))
         minute = 0
-    if period in {"下午", "晚上"} and hour < 12:
+        meridiem = (hour_match.group(2) or "").lower()
+    if meridiem == "pm" and hour < 12:
         hour += 12
-    if period == "中午" and hour < 11:
+    if meridiem == "am" and hour == 12:
+        hour = 0
+    if period in {"下午", "晚上", "afternoon", "evening", "night"} and hour < 12:
+        hour += 12
+    if period in {"中午", "noon"} and hour < 11:
         hour += 12
     return hour + minute / 60
 
@@ -537,7 +604,7 @@ class Store:
         text = f"{due} {context}"
         has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         fixed_words = re.search(r"(会议|开会|组会|上课|面试|吃饭|午饭|午餐|晚饭|早餐|appointment|meeting|lunch|dinner|breakfast|meal|exam|examination)", text, re.I)
-        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\\bby\\b|before)", text, re.I)
+        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\bby\b|before)", text, re.I)
         if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
             if explicit == "fixed_event" and deadline_words and not fixed_words:
                 return "flexible_task"
@@ -778,7 +845,7 @@ class Store:
         explicit_schedule_tasks = self.parse_explicit_schedule_lines(user_id, clean)
         if explicit_schedule_tasks:
             return explicit_schedule_tasks
-        if self.looks_like_compact_multi_task_list(clean):
+        if self.looks_like_compact_multi_task_list(clean) or self.english_task_segments(clean):
             return self.local_parse_tasks_from_text(user_id, clean)
         llm_result = chat_completion(
             [
@@ -879,13 +946,14 @@ class Store:
         return self.local_parse_tasks_from_text(user_id, clean)
 
     def estimated_task_count(self, text: str) -> int:
-        clean = re.sub(r"\s+", "", text)
-        if not clean:
+        compact = re.sub(r"\s+", "", text)
+        readable = re.sub(r"\s+", " ", text).strip()
+        if not compact:
             return 0
-        clock_count = len(re.findall(r"(?:早上|上午|中午|下午|晚上)?\d{1,2}(?:[:：]\d{2}|点|时)", clean))
+        clock_count = len(re.findall(r"(?:早上|上午|中午|下午|晚上)?\d{1,2}(?:[:：]\d{2}|点|时)|\d{1,2}(?::\d{2})?\s*(?:am|pm)", readable, re.I))
         action_segments = [
             part.strip("，,。；;、")
-            for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;|、)", clean)
+            for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;|、|\b(?:i\s+)?also\s+need\s+to\b|\band\s+(?=I\s+need\s+to|I\s+also\s+need\s+to|review|read|write|finish|complete|prepare|go|study|submit)\b)", readable, flags=re.I)
             if part.strip("，,。；;、")
         ]
         action_count = sum(
@@ -898,7 +966,7 @@ class Store:
                 re.I,
             )
         )
-        serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", clean))
+        serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", compact))
         return max(clock_count, action_count, serial_count, 1)
 
     def looks_like_compact_multi_task_list(self, text: str) -> bool:
@@ -921,6 +989,30 @@ class Store:
         )
         followup_markers = re.search(r"第[一二三四五六七八九\d]+|这个|那个|都是|每个", text)
         return action_count >= 2 and not followup_markers
+
+    def english_task_segments(self, text: str) -> list[str]:
+        if not re.search(r"[A-Za-z]", text):
+            return []
+        normalized = re.sub(r"\s+", " ", text).strip()
+        normalized = re.sub(r"^\s*this week\s+", "", normalized, flags=re.I)
+        normalized = re.sub(r"\bI also need to\b", "||", normalized, flags=re.I)
+        normalized = re.sub(r"\bI need to\b", "||", normalized, flags=re.I)
+        normalized = re.sub(r"\bI have to\b", "||", normalized, flags=re.I)
+        normalized = re.sub(r"\bI plan to\b", "||", normalized, flags=re.I)
+        normalized = re.sub(
+            r"\band\s+(?=(?:I\s+)?(?:also\s+)?(?:need|have|plan)\s+to\b|review\b|read\b|write\b|finish\b|complete\b|prepare\b|go\b|study\b|submit\b)",
+            "||",
+            normalized,
+            flags=re.I,
+        )
+        normalized = re.sub(
+            r",\s*(?=(?:review|read|write|finish|complete|prepare|go|study|submit)\b)",
+            "||",
+            normalized,
+            flags=re.I,
+        )
+        parts = [re.sub(r"^\s*to\s+", "", part.strip(" .,!;:"), flags=re.I) for part in normalized.split("||") if part.strip(" .,!;:")]
+        return parts if len(parts) > 1 else []
 
     def parse_explicit_schedule_lines(self, user_id: str, text: str) -> list[dict]:
         clock = r"(?:(?:早上|上午|中午|下午|晚上)\s*)?\d{1,2}\s*(?:[:：]\s*\d{2}|点|时)"
@@ -975,9 +1067,10 @@ class Store:
 
     def local_parse_tasks_from_text(self, user_id: str, text: str) -> list[dict]:
         clean = text.strip()
-        time_word = r"(((早上|上午|中午|下午|晚上)\s*)?\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2})"
-        relative_day = r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])"
-        connector_segments = [
+        time_word = rf"(((早上|上午|中午|下午|晚上)\s*)?\d{{1,2}}\s*(点|时)|\d{{1,2}}[:：]\d{{2}}\s*(?:am|pm)?|\d{{1,2}}\s*(?:am|pm)|morning|afternoon|evening|night|noon)"
+        relative_day = rf"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|today|tonight|tomorrow|tmr|tmrw|{ENGLISH_WEEKDAY}|every\s+(?:morning|afternoon|evening|night|day))"
+        english_segments = self.english_task_segments(clean)
+        connector_segments = english_segments or [
             part.strip(" ，,。；;、")
             for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;)", clean)
             if part.strip(" ，,。；;、")
@@ -1012,12 +1105,13 @@ class Store:
             period_match = re.search(r"(早上|上午|中午|下午|晚上)", segment)
             if period_match:
                 last_period = period_match.group(0)
-            due_match = re.search(rf"({relative_day}\s*{time_word}|{time_word}|{relative_day})", segment)
-            due = due_match.group(0) if due_match else "未设置"
+            english_due = english_day_time_in_text(segment)
+            due_match = re.search(rf"({relative_day}\s*{time_word}|{time_word}\s*{relative_day}|{time_word}|{relative_day})", segment, re.I)
+            due = english_due or (due_match.group(0) if due_match else "未设置")
             separate_time_match = re.search(time_word, segment)
             if due != "未设置" and day_match and separate_time_match and not re.search(time_word, due):
                 due = f"{day_match.group(0)}{separate_time_match.group(0)}"
-            if due != "未设置" and last_day and not re.search(relative_day, due):
+            if due != "未设置" and last_day and not english_due and not re.search(relative_day, due, re.I):
                 due = f"{last_day}{due}"
             if due != "未设置" and last_period and re.search(r"\d{1,2}\s*(点|时)", due) and not re.search(r"(早上|上午|中午|下午|晚上)", due):
                 due = re.sub(r"(\d{1,2}\s*(点|时))", rf"{last_period}\1", due, count=1)
@@ -1043,27 +1137,34 @@ class Store:
                 title_text,
                 flags=re.I,
             )
-            title_text = re.sub(r"\d+\s*(个)?\s*(分钟|min|小时|h)", "", title_text, flags=re.I)
+            title_text = re.sub(r"\d+\s*(个)?(?:-|–|—)?\s*(分钟|minutes?|mins?|min|小时|hours?|hrs?|h)", "", title_text, flags=re.I)
             title_text = re.sub(r"(大概|大约|预计|左右)", "", title_text)
             if re.search(r"[A-Za-z]", title_text):
                 title_text = re.sub(r"\s+", " ", title_text).strip(" ，,。；;、") or segment
             else:
                 title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
-            task = self.create_task(
-                user_id,
-                {
-                    "title": title_text[:42],
-                    "task_type": self.infer_schedule_task_type({"due": due, "context": segment}),
-                    "deadline": due,
-                    "due": due,
-                    "estimated_duration": duration,
-                    "duration": duration,
-                    "priority": priority,
-                    "context": segment,
-                },
-            )
-            task["parser"] = "local_fallback"
-            tasks.append(task)
+            if re.search(r"[A-Za-z]", title_text):
+                title_text = re.sub(r"\b(?:this week|by|before|after|for|every|today|tonight|tomorrow|tmr|tmrw|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|noon)\b", " ", title_text, flags=re.I)
+                title_text = re.sub(r"\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}[:：]\d{2}", " ", title_text, flags=re.I)
+                title_text = re.sub(r"\b(?:am|pm|minutes?|mins?|hours?|hrs?)\b", " ", title_text, flags=re.I)
+                title_text = re.sub(r"\s+", " ", title_text).strip(" .,!;:") or segment
+            for due_value in recurring_due_values(segment, due):
+                is_recurring_time = due_value != due
+                task = self.create_task(
+                    user_id,
+                    {
+                        "title": title_text[:42],
+                        "task_type": "fixed_event" if is_recurring_time else self.infer_schedule_task_type({"due": due_value, "context": segment}),
+                        "deadline": due_value,
+                        "due": due_value,
+                        "estimated_duration": duration,
+                        "duration": duration,
+                        "priority": priority,
+                        "context": segment,
+                    },
+                )
+                task["parser"] = "local_fallback"
+                tasks.append(task)
         return tasks
 
     def parse_task_from_text(self, user_id: str, text: str) -> dict:
