@@ -73,7 +73,9 @@ const API_BASE = window.HUMANOS_API_BASE || `${API_PROTOCOL}//${API_HOST}:8787`;
 const CHAT_CONTEXT_TURN_LIMIT = 50;
 const CHAT_MESSAGE_DISPLAY_LIMIT = CHAT_CONTEXT_TURN_LIMIT * 2;
 const DEBUG_NOW_KEY = "humanosDebugNowMs";
+const LANG_KEY = "humanosLanguage";
 let currentUser = JSON.parse(localStorage.getItem("humanosUser") || "null");
+let currentLang = localStorage.getItem(LANG_KEY) === "en" ? "en" : "zh";
 let authMode = "login";
 let backendOnline = false;
 let authPending = false;
@@ -81,6 +83,7 @@ let calendarView = "day";
 let chatMessages = [];
 let pendingSchedulePlan = null;
 let debugNowMs = Number(localStorage.getItem(DEBUG_NOW_KEY)) || null;
+let miniCalendarCursor = new Date(getNow().getFullYear(), getNow().getMonth(), 1);
 const promptedSlots = new Set(JSON.parse(localStorage.getItem("humanosPromptedSlots") || "[]"));
 let currentProfile = {
   role: "研究型学生",
@@ -92,8 +95,8 @@ let lastDecision = null;
 let editingTaskId = null;
 const deletingTaskIds = new Set();
 const HOUR_ROW_HEIGHT = 64;
-const CALENDAR_START_HOUR = 8;
-const CALENDAR_END_HOUR = 18;
+const CALENDAR_START_HOUR = 0;
+const CALENDAR_END_HOUR = 24;
 const DRAG_STEP_MINUTES = 15;
 
 const calendar = document.getElementById("calendar");
@@ -113,6 +116,9 @@ const dialog = document.getElementById("taskDialog");
 const focusInput = document.getElementById("focusInput");
 const energyInput = document.getElementById("energyInput");
 const stressInput = document.getElementById("stressInput");
+const focusValue = document.getElementById("focusValue");
+const energyValue = document.getElementById("energyValue");
+const stressValue = document.getElementById("stressValue");
 const backendStatus = document.getElementById("backendStatus");
 const profileRole = document.getElementById("profileRole");
 const profileDeepWork = document.getElementById("profileDeepWork");
@@ -139,6 +145,22 @@ const workspaceNavBtn = document.getElementById("workspaceNavBtn");
 const profileHomeBtn = document.getElementById("profileHomeBtn");
 const workspaceView = document.getElementById("workspaceView");
 const profileHomeView = document.getElementById("profileHomeView");
+const langToggleBtn = document.getElementById("langToggleBtn");
+const accountChipBtn = document.getElementById("accountChipBtn");
+const sidebarCollapseBtn = document.getElementById("sidebarCollapseBtn");
+const sidebarNewTaskBtn = document.getElementById("sidebarNewTaskBtn");
+const sidebarChatBtn = document.getElementById("sidebarChatBtn");
+const sidebarCalendarBtn = document.getElementById("sidebarCalendarBtn");
+const sidebarTasksBtn = document.getElementById("sidebarTasksBtn");
+const sidebarProfileBtn = document.getElementById("sidebarProfileBtn");
+const sidebarDateLabel = document.getElementById("sidebarDateLabel");
+const navDateLabel = document.getElementById("navDateLabel");
+const navTaskCount = document.getElementById("navTaskCount");
+const todayJumpBtn = document.getElementById("todayJumpBtn");
+const miniMonthLabel = document.getElementById("miniMonthLabel");
+const miniCalendarGrid = document.getElementById("miniCalendarGrid");
+const miniPrevBtn = document.getElementById("miniPrevBtn");
+const miniNextBtn = document.getElementById("miniNextBtn");
 const dayViewBtn = document.getElementById("dayViewBtn");
 const weekViewBtn = document.getElementById("weekViewBtn");
 const taskForm = document.getElementById("taskForm");
@@ -169,7 +191,228 @@ const wizardSupportNeed = document.getElementById("wizardSupportNeed");
 const wizardControl = document.getElementById("wizardControl");
 const wizardError = document.getElementById("wizardError");
 const skipProfileBtn = document.getElementById("skipProfileBtn");
+const wizardPrevBtn = document.getElementById("wizardPrevBtn");
+const wizardNextBtn = document.getElementById("wizardNextBtn");
+const saveWizardBtn = document.getElementById("saveWizardBtn");
+const wizardStepBadge = document.getElementById("wizardStepBadge");
 const profileSummary = document.getElementById("profileSummary");
+let wizardStep = 0;
+const WIZARD_STEP_COUNT = 4;
+
+const I18N = {
+  zh: {
+    appSubtitle: "AI 学习计划 · 中断恢复 · 个性化安排",
+    workspace: "工作台",
+    profileHome: "个人主页",
+    logout: "退出",
+    addTask: "新增任务",
+    newShort: "New",
+    aiChat: "AI 对话",
+    calendar: "日历",
+    tasks: "任务",
+    profile: "个人设置",
+    aiAssistant: "AI 学习助手",
+    assistantHint: "输入任务、状态和中断原因",
+    send: "发送",
+    currentState: "当前状态",
+    stateUse: "用于安排今天任务",
+    focus: "专注",
+    energy: "精力",
+    stress: "压力",
+    today: "Today",
+    day: "日",
+    week: "周",
+    cancel: "取消",
+    confirmCalendar: "确认加入日历",
+    taskDetail: "任务详情",
+    contextWindow: "上下文窗口",
+    contextHint: "恢复任务时先看这里",
+    interruptions: "中断记录",
+    resumeTip: "恢复提示",
+    continueStart: "继续开始",
+    notLoggedIn: "未登录",
+    realTime: "真实时间",
+    simulated: "模拟",
+    todayPrefix: "今天：",
+    noTask: "暂无任务",
+    empty: "Empty",
+    noTaskDetail: "点击右上角“新增任务”，先建立一个需要安排的学习任务。",
+    unscheduled: "尚未进入日历",
+    prioritySuffix: "优先级",
+    minutes: "分钟",
+    progress: "当前进展",
+    firstStep: "回来第一步",
+    openQuestions: "开放问题",
+    edit: "编辑",
+    deleteTask: "删除任务",
+    noCheckpoint: "暂无中断记录",
+    checkpointHelp: "新增任务后，可以在切换前保存当前进展、未解决问题和下一步。",
+    checkpointTaskHelp: "暂停任务时会保存进展、未解决问题和下一步。",
+    items: "条",
+    noContext: "暂无上下文窗口",
+    contextEmptyHelp: "新增任务后，这里会显示当前进展、下一步、开放问题和恢复线索。",
+    nextStep: "下一步",
+    unresolved: "未解决问题",
+    materials: "资料线索",
+    recoveryCue: "恢复条件",
+    resumeEntry: "继续入口",
+    createTaskFirst: "先创建一个学习任务",
+    generatedAfterTask: "新增任务后生成",
+    suggestedBlock: "建议时间块",
+    notSet: "未设置",
+    fromLastCheckpoint: "从最近中断记录继续",
+    saveCheckpointFirst: "先保存一次中断记录",
+    saveContextFirst: "先用 10 分钟写下当前任务状态，再决定是否继续。",
+    pending: "待确认",
+    completed: "已完成",
+    executionWindow: "执行窗口",
+    noSchedule: "暂无安排",
+    systemTitle: "HumanOS",
+    systemIntro: "你可以像聊天一样描述任务、进展、中断原因或当前卡点。我会解析后在右侧生成待确认安排。",
+    stateTitle: "当前状态",
+    taskHasCheckpoint: "这个任务已有中断记录。继续时先看右侧提示，再开始第一步。",
+    taskNoCheckpoint: "这个任务还没有中断记录。如果马上要切换，请先保存当前进展、未解决问题和回来第一步。",
+    createTaskHint: "先新增一个学习任务，右侧会显示日历安排和继续入口。",
+    suggestion: "个性化建议",
+    confidence: "置信度",
+    risk: "注意",
+    selectTask: "选择一个任务",
+    taskUpdated: "任务已更新",
+    taskSaved: "任务已保存",
+    saveFailed: "保存失败",
+    invalidDebug: "Debug 时间无效",
+    pickFullDate: "请选择一个完整的日期和时间。",
+    debugChanged: "Debug 时间已切换",
+    currentSimTime: "当前模拟时间",
+    debugOff: "Debug 时间已关闭",
+    backToReal: "已回到真实当前时间。",
+    scheduleConfirmed: "安排已确认",
+    scheduleConfirmedBody: "我已经把这些时间块加入右侧日历。到对应时间点时，我会主动询问任务情况。",
+    scheduleCanceled: "已取消安排",
+    scheduleCanceledBody: "这次建议没有加入日历。你可以继续描述限制条件，我会重新生成。",
+    noTaskAuto: "暂无任务",
+    noTaskAutoBody: "请先新增一个任务。",
+    manualAdded: "已手动添加",
+    manualAddedBody: "已加入日历视图。",
+    editDecision: "编辑判断",
+    autoReason: "根据当前任务和状态生成安排。",
+    accountTitle: "打开个人主页",
+    collapseTitle: "收起侧边栏",
+    expandTitle: "展开侧边栏",
+    prevMonth: "上个月",
+    nextMonth: "下个月"
+  },
+  en: {
+    appSubtitle: "AI study planning · interruption recovery · personalized scheduling",
+    workspace: "Workspace",
+    profileHome: "Profile",
+    logout: "Log out",
+    addTask: "Add task",
+    newShort: "New",
+    aiChat: "AI Chat",
+    calendar: "Calendar",
+    tasks: "Tasks",
+    profile: "Profile",
+    aiAssistant: "AI Study Assistant",
+    assistantHint: "Enter tasks, state, and interruption reasons",
+    send: "Send",
+    currentState: "Current State",
+    stateUse: "Used for today's scheduling",
+    focus: "Focus",
+    energy: "Energy",
+    stress: "Stress",
+    today: "Today",
+    day: "Day",
+    week: "Week",
+    cancel: "Cancel",
+    confirmCalendar: "Add to calendar",
+    taskDetail: "Task Details",
+    contextWindow: "Context Window",
+    contextHint: "Check this before resuming",
+    interruptions: "Interruptions",
+    resumeTip: "Resume Prompt",
+    continueStart: "Start again",
+    notLoggedIn: "Not signed in",
+    realTime: "Real time",
+    simulated: "Simulated",
+    todayPrefix: "Today: ",
+    noTask: "No task",
+    empty: "Empty",
+    noTaskDetail: "Click “Add task” in the top right to create a study task.",
+    unscheduled: "Not on calendar",
+    prioritySuffix: " priority",
+    minutes: "min",
+    progress: "Progress",
+    firstStep: "First step back",
+    openQuestions: "Open questions",
+    edit: "Edit",
+    deleteTask: "Delete task",
+    noCheckpoint: "No interruption records",
+    checkpointHelp: "After adding a task, save progress, open questions, and the next step before switching away.",
+    checkpointTaskHelp: "Paused tasks store progress, unresolved questions, and the next step.",
+    items: "items",
+    noContext: "No context window",
+    contextEmptyHelp: "After adding a task, this area shows progress, next step, open questions, and recovery cues.",
+    nextStep: "Next step",
+    unresolved: "Open questions",
+    materials: "Materials",
+    recoveryCue: "Recovery cue",
+    resumeEntry: "Resume from",
+    createTaskFirst: "Create a study task first",
+    generatedAfterTask: "Generated after adding a task",
+    suggestedBlock: "Suggested block",
+    notSet: "Not set",
+    fromLastCheckpoint: "Latest interruption record",
+    saveCheckpointFirst: "Save one interruption record first",
+    saveContextFirst: "Spend 10 minutes writing the current task state, then decide whether to continue.",
+    pending: "Pending",
+    completed: "Completed",
+    executionWindow: "Work block",
+    noSchedule: "No schedule",
+    systemTitle: "HumanOS",
+    systemIntro: "Describe tasks, progress, interruptions, or blockers like a chat. I will parse it and create a pending schedule on the right.",
+    stateTitle: "Current state",
+    taskHasCheckpoint: "This task has interruption records. Check the right-side prompt before taking the first step.",
+    taskNoCheckpoint: "This task has no interruption record yet. If you are about to switch away, save progress, open questions, and the first step back.",
+    createTaskHint: "Add a study task first. The right side will show scheduling and a resume entry.",
+    suggestion: "Personalized suggestion",
+    confidence: "Confidence",
+    risk: "Note",
+    selectTask: "Select a task",
+    taskUpdated: "Task updated",
+    taskSaved: "Task saved",
+    saveFailed: "Save failed",
+    invalidDebug: "Invalid debug time",
+    pickFullDate: "Choose a complete date and time.",
+    debugChanged: "Debug time changed",
+    currentSimTime: "Current simulated time",
+    debugOff: "Debug time off",
+    backToReal: "Returned to real current time.",
+    scheduleConfirmed: "Schedule confirmed",
+    scheduleConfirmedBody: "I added these blocks to the calendar. At the scheduled time, I will ask about task status.",
+    scheduleCanceled: "Schedule canceled",
+    scheduleCanceledBody: "This suggestion was not added. Describe more constraints and I will generate a new plan.",
+    noTaskAuto: "No task",
+    noTaskAutoBody: "Add a task first.",
+    manualAdded: "Added manually",
+    manualAddedBody: "was added to the calendar view.",
+    editDecision: "Edit review",
+    autoReason: "Generate a schedule from current tasks and state.",
+    accountTitle: "Open profile",
+    collapseTitle: "Collapse sidebar",
+    expandTitle: "Expand sidebar",
+    prevMonth: "Previous month",
+    nextMonth: "Next month"
+  }
+};
+
+function t(key) {
+  return I18N[currentLang]?.[key] || I18N.zh[key] || key;
+}
+
+function isEnglish() {
+  return currentLang === "en";
+}
 
 function save() {
   localStorage.setItem("humanosMotionTasks", JSON.stringify(tasks));
@@ -276,7 +519,7 @@ function formatDateTimeLocal(date) {
 }
 
 function formatDebugBadgeTime(date) {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(isEnglish() ? "en-US" : "zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -290,8 +533,8 @@ function syncDebugTimeControl() {
   const now = getNow();
   debugTimeInput.value = formatDateTimeLocal(now);
   debugTimeBadge.textContent = isDebugTimeEnabled()
-    ? `模拟：${formatDebugBadgeTime(now)}`
-    : "真实时间";
+    ? `${t("simulated")}：${formatDebugBadgeTime(now)}`
+    : t("realTime");
   debugTimeBadge.classList.toggle("active", isDebugTimeEnabled());
 }
 
@@ -301,7 +544,7 @@ function applyDebugNow(ms, announce = true) {
   localStorage.setItem(DEBUG_NOW_KEY, String(debugNowMs));
   syncDebugTimeControl();
   if (announce) {
-    addChatMessage("ai", "Debug 时间已切换", `当前模拟时间：${todayLabel()} ${formatHour(currentHourFloat())}。`);
+    addChatMessage("ai", t("debugChanged"), `${t("currentSimTime")}：${todayLabel()} ${formatHour(currentHourFloat())}。`);
   }
   activeSelectionMode = "auto";
   checkTaskTimePrompts(false);
@@ -312,14 +555,14 @@ function resetDebugNow(announce = true) {
   debugNowMs = null;
   localStorage.removeItem(DEBUG_NOW_KEY);
   syncDebugTimeControl();
-  if (announce) addChatMessage("ai", "Debug 时间已关闭", "已回到真实当前时间。");
+  if (announce) addChatMessage("ai", t("debugOff"), t("backToReal"));
   activeSelectionMode = "auto";
   checkTaskTimePrompts(false);
   render();
 }
 
 function todayLabel() {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(isEnglish() ? "en-US" : "zh-CN", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -327,23 +570,117 @@ function todayLabel() {
   }).format(getNow());
 }
 
+function shortDateLabel() {
+  return new Intl.DateTimeFormat(isEnglish() ? "en-US" : "zh-CN", {
+    weekday: "short",
+    month: "short",
+    day: "2-digit"
+  }).format(getNow());
+}
+
+function renderMiniCalendar() {
+  if (!miniCalendarGrid || !miniMonthLabel) return;
+  const now = new Date(miniCalendarCursor);
+  const today = getNow();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  miniMonthLabel.textContent = new Intl.DateTimeFormat(isEnglish() ? "en-US" : "zh-CN", {
+    month: "long",
+    year: "numeric"
+  }).format(now);
+
+  const first = new Date(year, month, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  const todayKey = today.toDateString();
+  const cells = [];
+  for (let i = 0; i < 42; i += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    const isMuted = date.getMonth() !== month;
+    const isToday = date.toDateString() === todayKey;
+    const dateMs = date.getTime();
+    cells.push(`
+      <button class="${isMuted ? "muted" : ""} ${isToday ? "today" : ""}" type="button" data-date-ms="${dateMs}">
+        ${date.getDate()}
+      </button>
+    `);
+  }
+  miniCalendarGrid.innerHTML = cells.join("");
+  miniCalendarGrid.querySelectorAll("button[data-date-ms]").forEach((button) => {
+    button.addEventListener("click", () => {
+      applyDebugNow(Number(button.dataset.dateMs), false);
+    });
+  });
+}
+
+function renderMotionShellMeta() {
+  const label = shortDateLabel();
+  if (sidebarDateLabel) sidebarDateLabel.textContent = label;
+  if (navDateLabel) navDateLabel.textContent = label;
+  if (navTaskCount) navTaskCount.textContent = String(tasks.length);
+  renderMiniCalendar();
+}
+
+function applyTranslations() {
+  document.documentElement.lang = isEnglish() ? "en" : "zh-CN";
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    node.textContent = t(node.dataset.i18n);
+  });
+  if (langToggleBtn) langToggleBtn.textContent = isEnglish() ? "中文" : "EN";
+  if (chatInput) {
+    chatInput.placeholder = isEnglish()
+      ? "Describe a task, progress, or blocker. For calendar scheduling, include day, time, and estimated duration. Enter sends, Shift+Enter inserts a line break."
+      : "说一句任务、进展或卡点。排日历至少需要：哪一天、几点、预计多久。Enter 发送，Shift+Enter 换行。";
+  }
+  if (accountChipBtn) accountChipBtn.title = t("accountTitle");
+  if (sidebarCollapseBtn) {
+    sidebarCollapseBtn.title = document.body.classList.contains("sidebar-collapsed")
+      ? t("expandTitle")
+      : t("collapseTitle");
+  }
+  if (miniPrevBtn) miniPrevBtn.title = t("prevMonth");
+  if (miniNextBtn) miniNextBtn.title = t("nextMonth");
+  const weekdays = isEnglish()
+    ? ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+    : ["日", "一", "二", "三", "四", "五", "六"];
+  document.querySelectorAll(".mini-weekdays span").forEach((node, index) => {
+    node.textContent = weekdays[index] || node.textContent;
+  });
+}
+
 function showAuth() {
   authScreen.classList.remove("hidden");
   profileScreen.classList.add("hidden");
   appRoot.classList.add("hidden");
-  userBadge.textContent = currentUser?.email || "未登录";
+  userBadge.textContent = currentUser?.email || t("notLoggedIn");
 }
 
 function hideAuth() {
   authScreen.classList.add("hidden");
-  userBadge.textContent = currentUser?.email || "未登录";
+  userBadge.textContent = currentUser?.email || t("notLoggedIn");
+}
+
+function updateWizardStep() {
+  document.querySelectorAll(".wizard-step").forEach((step, index) => {
+    step.classList.toggle("active", index === wizardStep);
+  });
+  document.querySelectorAll(".wizard-progress span").forEach((dot, index) => {
+    dot.classList.toggle("active", index <= wizardStep);
+  });
+  if (wizardStepBadge) wizardStepBadge.textContent = `${wizardStep + 1} / ${WIZARD_STEP_COUNT}`;
+  wizardPrevBtn.classList.toggle("hidden", wizardStep === 0);
+  wizardNextBtn.classList.toggle("hidden", wizardStep === WIZARD_STEP_COUNT - 1);
+  saveWizardBtn.classList.toggle("hidden", wizardStep !== WIZARD_STEP_COUNT - 1);
 }
 
 function showProfileSetup() {
+  wizardStep = 0;
   hideAuth();
   profileScreen.classList.remove("hidden");
   appRoot.classList.add("hidden");
   syncWizardForm();
+  updateWizardStep();
 }
 
 function showApp() {
@@ -374,7 +711,9 @@ function setAuthMode(mode) {
   authNameLabel.classList.toggle("hidden", !isRegister);
   loginModeBtn.classList.toggle("active", !isRegister);
   registerModeBtn.classList.toggle("active", isRegister);
-  authSubmitBtn.textContent = isRegister ? "注册并开始设置" : "登录并进入";
+  authSubmitBtn.textContent = isRegister
+    ? (isEnglish() ? "Register and set up" : "注册并开始设置")
+    : (isEnglish() ? "Sign in" : "登录并进入");
   authPassword.autocomplete = isRegister ? "new-password" : "current-password";
   authError.textContent = "";
 }
@@ -388,7 +727,7 @@ function addChatMessage(sender, title, text) {
     sender,
     title,
     text,
-    createdAt: getNow().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    createdAt: getNow().toLocaleTimeString(isEnglish() ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit" })
   });
   if (chatMessages.length > CHAT_MESSAGE_DISPLAY_LIMIT) {
     chatMessages = chatMessages.slice(-CHAT_MESSAGE_DISPLAY_LIMIT);
@@ -399,7 +738,7 @@ function formatConfidence(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "";
   const normalized = numeric > 1 ? numeric / 100 : numeric;
-  return `解析把握：${Math.round(normalized * 100)}%`;
+  return `${t("confidence")}：${Math.round(normalized * 100)}%`;
 }
 
 function chatConfidence(turn = {}) {
@@ -408,7 +747,7 @@ function chatConfidence(turn = {}) {
 
 function formatBackendTime(ms) {
   if (!ms) return "";
-  return new Date(ms).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString(isEnglish() ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
 function chatMessagesFromTurns(turns = []) {
@@ -1404,12 +1743,12 @@ function checkTaskTimePrompts(force = false) {
 }
 
 function statusLabel(task) {
-  if (task.status === "running") return "Running";
-  if (task.status === "paused") return "Suspended";
-  if (task.status === "scheduled") return "Scheduled";
-  if (task.status === "completed") return "Completed";
-  if (task.status === "queued") return "Ready";
-  return "Ready";
+  if (task.status === "running") return isEnglish() ? "Running" : "执行中";
+  if (task.status === "paused") return isEnglish() ? "Suspended" : "已暂停";
+  if (task.status === "scheduled") return isEnglish() ? "Scheduled" : "已安排";
+  if (task.status === "completed") return isEnglish() ? "Completed" : "已完成";
+  if (task.status === "queued") return isEnglish() ? "Ready" : "候选";
+  return isEnglish() ? "Ready" : "候选";
 }
 
 function renderChat() {
@@ -1421,28 +1760,28 @@ function renderChat() {
   const systemMessages = [
     {
       sender: "ai",
-      title: "HumanOS",
-      text: `今天是 ${todayLabel()}。\n你可以像聊天一样描述任务、进展、中断原因或当前卡点。我会解析后在右侧生成待确认安排。`
+      title: t("systemTitle"),
+      text: `${isEnglish() ? "Today is" : "今天是"} ${todayLabel()}。\n${t("systemIntro")}`
     },
     {
       sender: "ai",
-      title: "当前状态",
-      text: `专注 ${focus}/7，精力 ${energy}/7，压力 ${stress}/7。`
+      title: t("stateTitle"),
+      text: `${t("focus")} ${focus}/7，${t("energy")} ${energy}/7，${t("stress")} ${stress}/7。`
     },
     {
       sender: "ai",
-      title: task ? task.title : "暂无任务",
+      title: task ? task.title : t("noTask"),
       text: task
         ? hasCheckpoint
-          ? "这个任务已有中断记录。继续时先看右侧提示，再开始第一步。"
-          : "这个任务还没有中断记录。如果马上要切换，请先保存当前进展、未解决问题和回来第一步。"
-        : "先新增一个学习任务，右侧会显示日历安排和继续入口。"
+          ? t("taskHasCheckpoint")
+          : t("taskNoCheckpoint")
+        : t("createTaskHint")
     }
   ];
   const decisionMessages = lastDecision ? [{
     sender: "ai",
-    title: "个性化建议",
-    text: `${lastDecision.explanation}${formatConfidence(lastDecision.confidence) ? `\n${formatConfidence(lastDecision.confidence)}` : ""}${lastDecision.first_action ? `\n第一步：${lastDecision.first_action}` : ""}${lastDecision.risk ? `\n注意：${lastDecision.risk}` : ""}`
+    title: t("suggestion"),
+    text: `${lastDecision.explanation}${formatConfidence(lastDecision.confidence) ? `\n${formatConfidence(lastDecision.confidence)}` : ""}${lastDecision.first_action ? `\n${t("firstStep")}：${lastDecision.first_action}` : ""}${lastDecision.risk ? `\n${t("risk")}：${lastDecision.risk}` : ""}`
   }] : [];
   chatThread.innerHTML = [...systemMessages, ...decisionMessages, ...chatMessages].map((message) => `
     <div class="message ${message.sender}">
@@ -1504,9 +1843,9 @@ function renderCalendar() {
     event.style.right = "auto";
     event.dataset.id = task.id;
     event.draggable = true;
-    const label = block.source === "pending" ? "待确认" : block.source === "suggested" ? "待确认" : task.status === "completed" ? "已完成" : "执行窗口";
+    const label = block.source === "pending" ? t("pending") : block.source === "suggested" ? t("pending") : task.status === "completed" ? t("completed") : t("executionWindow");
     event.innerHTML = `
-      <button class="event-delete" type="button" aria-label="删除 ${escapeHtml(task.title)}">×</button>
+      <button class="event-delete" type="button" aria-label="${t("deleteTask")} ${escapeHtml(task.title)}">×</button>
       <h3>${escapeHtml(task.title)}</h3>
       <p>${label} · ${formatHour(block.start)}-${formatHour(block.end)}</p>
     `;
@@ -1532,7 +1871,9 @@ function renderCalendar() {
 }
 
 function renderWeekCalendar() {
-  const days = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const days = isEnglish()
+    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
   const allBlocks = visibleCalendarBlocks();
   const blocksByDay = days.map((_, dayIndex) => {
     return allBlocks
@@ -1547,11 +1888,11 @@ function renderWeekCalendar() {
           ${blocksByDay[dayIndex].length ? blocksByDay[dayIndex]
             .map((block) => `
               <article class="week-event ${block.color} ${taskStatusClass(block.task, block)}" data-id="${block.task.id}">
-                <button class="event-delete" type="button" aria-label="删除 ${escapeHtml(block.task.title)}">×</button>
+                <button class="event-delete" type="button" aria-label="${t("deleteTask")} ${escapeHtml(block.task.title)}">×</button>
                 <strong>${escapeHtml(block.task.title)}</strong>
-                <span>${formatHour(block.start)}-${formatHour(block.end)} · ${block.source === "pending" || block.source === "suggested" ? "待确认" : `${block.task.duration} 分钟`}</span>
+                <span>${formatHour(block.start)}-${formatHour(block.end)} · ${block.source === "pending" || block.source === "suggested" ? t("pending") : `${block.task.duration} ${t("minutes")}`}</span>
               </article>
-            `).join("") : `<p>暂无安排</p>`}
+            `).join("") : `<p>${t("noSchedule")}</p>`}
         </section>
       `).join("")}
     </div>
@@ -1577,11 +1918,11 @@ function formatHour(value) {
 function renderActiveTask() {
   const task = selectedTask();
   if (!task) {
-    resumeSubtitle.textContent = "暂无任务";
-    modePill.textContent = "Empty";
+    resumeSubtitle.textContent = t("noTask");
+    modePill.textContent = t("empty");
     activeTask.innerHTML = `
-      <h3>暂无任务</h3>
-      <p>点击右上角“新增任务”，先建立一个需要安排的学习任务。</p>
+      <h3>${t("noTask")}</h3>
+      <p>${t("noTaskDetail")}</p>
     `;
     return;
   }
@@ -1589,34 +1930,34 @@ function renderActiveTask() {
   modePill.textContent = statusLabel(task);
   const windowData = normalizeContextWindow(task);
   const block = taskCalendarBlock(task);
-  const scheduleText = block ? `${formatHour(block.start)}-${formatHour(block.end)}` : "尚未进入日历";
+  const scheduleText = block ? `${formatHour(block.start)}-${formatHour(block.end)}` : t("unscheduled");
   activeTask.innerHTML = `
     <h3>${escapeHtml(task.title)}</h3>
     <p>${escapeHtml(task.context || "暂无任务说明。")}</p>
     <div class="task-meta" style="margin-top:12px">
-      <span class="tag ${priorityClass(task.priority)}">${task.priority}优先级</span>
-      <span class="tag">${task.duration} 分钟</span>
+      <span class="tag ${priorityClass(task.priority)}">${escapeHtml(task.priority)}${t("prioritySuffix")}</span>
+      <span class="tag">${task.duration} ${t("minutes")}</span>
       <span class="tag">${escapeHtml(task.due)}</span>
       <span class="tag">${scheduleText}</span>
       <span class="tag">${statusLabel(task)}</span>
     </div>
     <div class="active-task-context">
       <article>
-        <span>当前进展</span>
+        <span>${t("progress")}</span>
         <p>${escapeHtml(windowData.progress)}</p>
       </article>
       <article>
-        <span>回来第一步</span>
+        <span>${t("firstStep")}</span>
         <p>${escapeHtml(windowData.nextStep)}</p>
       </article>
       <article>
-        <span>开放问题</span>
+        <span>${t("openQuestions")}</span>
         <p>${escapeHtml(windowData.openQuestions)}</p>
       </article>
     </div>
     <div class="task-actions">
-      <button class="ghost" type="button" data-action="edit-active-task">编辑</button>
-      <button class="danger" type="button" data-action="delete-active-task">删除任务</button>
+      <button class="ghost" type="button" data-action="edit-active-task">${t("edit")}</button>
+      <button class="danger" type="button" data-action="delete-active-task">${t("deleteTask")}</button>
     </div>
   `;
   activeTask.querySelector('[data-action="edit-active-task"]')?.addEventListener("click", () => {
@@ -1630,21 +1971,21 @@ function renderActiveTask() {
 function renderCheckpoints() {
   const task = selectedTask();
   if (!task) {
-    checkpointCount.textContent = "0 条";
+    checkpointCount.textContent = `0 ${t("items")}`;
     checkpointView.innerHTML = `
       <div class="checkpoint-item">
-        <strong>暂无中断记录</strong>
-        <p>新增任务后，可以在切换前保存当前进展、未解决问题和下一步。</p>
+        <strong>${t("noCheckpoint")}</strong>
+        <p>${t("checkpointHelp")}</p>
       </div>
     `;
     return;
   }
-  checkpointCount.textContent = `${task.checkpoints.length} 条`;
+  checkpointCount.textContent = `${task.checkpoints.length} ${t("items")}`;
   if (!task.checkpoints.length) {
     checkpointView.innerHTML = `
       <div class="checkpoint-item">
-        <strong>暂无中断记录</strong>
-        <p>暂停任务时会保存进展、未解决问题和下一步。</p>
+        <strong>${t("noCheckpoint")}</strong>
+        <p>${t("checkpointTaskHelp")}</p>
       </div>
     `;
     return;
@@ -1659,6 +2000,7 @@ function renderCheckpoints() {
 }
 
 function renderSchedulingLens() {
+  if (!schedulingLens) return;
   const task = selectedTask();
   const node = schedulingNodeForTask(task);
   schedulingLens.innerHTML = `
@@ -1678,8 +2020,8 @@ function renderContextWindow() {
   if (!task) {
     contextWindow.innerHTML = `
       <div class="context-window-empty">
-        <strong>暂无上下文窗口</strong>
-        <p>新增任务后，这里会显示当前进展、下一步、开放问题和恢复线索。</p>
+        <strong>${t("noContext")}</strong>
+        <p>${t("contextEmptyHelp")}</p>
       </div>
     `;
     return;
@@ -1687,11 +2029,11 @@ function renderContextWindow() {
   const windowData = normalizeContextWindow(task);
   task.contextWindow = windowData;
   const items = [
-    ["当前进展", windowData.progress],
-    ["下一步", windowData.nextStep],
-    ["未解决问题", windowData.openQuestions],
-    ["资料线索", windowData.materials],
-    ["恢复条件", windowData.recoveryCue]
+    [t("progress"), windowData.progress],
+    [t("nextStep"), windowData.nextStep],
+    [t("unresolved"), windowData.openQuestions],
+    [t("materials"), windowData.materials],
+    [t("recoveryCue"), windowData.recoveryCue]
   ];
   contextWindow.innerHTML = items.map(([label, value]) => `
     <article class="context-window-item">
@@ -1706,11 +2048,11 @@ function renderBrief() {
   if (!task) {
     resumeBrief.innerHTML = `
       <div class="brief-card">
-        <h3>暂无任务</h3>
+        <h3>${t("noTask")}</h3>
         <ul>
-          <li>继续入口：新增任务后生成</li>
-          <li>下一步：先创建一个学习任务</li>
-          <li>建议时间块：未设置</li>
+          <li>${t("resumeEntry")}：${t("generatedAfterTask")}</li>
+          <li>${t("nextStep")}：${t("createTaskFirst")}</li>
+          <li>${t("suggestedBlock")}：${t("notSet")}</li>
         </ul>
       </div>
     `;
@@ -1719,21 +2061,22 @@ function renderBrief() {
   const hasCheckpoint = task.checkpoints.length > 0;
   const nextAction = hasCheckpoint
     ? task.checkpoints[task.checkpoints.length - 1].text
-    : "先用 10 分钟写下当前任务状态，再决定是否继续。";
+    : t("saveContextFirst");
 
   resumeBrief.innerHTML = `
     <div class="brief-card">
       <h3>${task.title}</h3>
       <ul>
-        <li>继续入口：${hasCheckpoint ? "从最近中断记录继续" : "先保存一次中断记录"}</li>
-        <li>下一步：${nextAction}</li>
-        <li>建议时间块：${Math.min(task.duration, 45)} 分钟</li>
+        <li>${t("resumeEntry")}：${hasCheckpoint ? t("fromLastCheckpoint") : t("saveCheckpointFirst")}</li>
+        <li>${t("nextStep")}：${nextAction}</li>
+        <li>${t("suggestedBlock")}：${Math.min(task.duration, 45)} ${t("minutes")}</li>
       </ul>
     </div>
   `;
 }
 
 function renderReasoning() {
+  if (!reasoning) return;
   const task = selectedTask();
   const focus = Number(focusInput.value);
   const energy = Number(energyInput.value);
@@ -1769,8 +2112,13 @@ function renderReasoning() {
 
 function render() {
   ensureActiveTask();
+  applyTranslations();
   syncDebugTimeControl();
-  todayBadge.textContent = `今天：${todayLabel()}`;
+  if (focusValue) focusValue.textContent = focusInput.value;
+  if (energyValue) energyValue.textContent = energyInput.value;
+  if (stressValue) stressValue.textContent = stressInput.value;
+  todayBadge.textContent = `${t("todayPrefix")}${todayLabel()}`;
+  renderMotionShellMeta();
   dayViewBtn.classList.toggle("active", calendarView === "day");
   weekViewBtn.classList.toggle("active", calendarView === "week");
   renderProfileSummary();
@@ -1782,7 +2130,6 @@ function render() {
   renderContextWindow();
   renderCheckpoints();
   renderBrief();
-  renderReasoning();
   save();
 }
 
@@ -1794,7 +2141,7 @@ function renderPendingSchedule() {
   }
   const lines = pendingPlanBlocks().map((block) => {
     const task = tasks.find((item) => item.id === block.task_id);
-    return `${task?.title || "任务"}：${formatHour(block.start)}-${formatHour(block.end)}`;
+    return `${task?.title || (isEnglish() ? "Task" : "任务")}：${formatHour(block.start)}-${formatHour(block.end)}`;
   });
   const violationLines = (pendingSchedulePlan.violations || [])
     .map((violation) => {
@@ -1803,20 +2150,20 @@ function renderPendingSchedule() {
           .map((id) => tasks.find((item) => item.id === id)?.title)
           .filter(Boolean)
           .join(" 与 ");
-        return names ? `固定事件冲突：${names} 在 ${formatHour(violation.start)}-${formatHour(violation.end)} 重叠` : "";
+        return names ? `${isEnglish() ? "Fixed event conflict" : "固定事件冲突"}：${names} ${isEnglish() ? "overlap at" : "在"} ${formatHour(violation.start)}-${formatHour(violation.end)}` : "";
       }
       const task = tasks.find((item) => item.id === violation.task_id);
-      const title = task?.title || "任务";
-      if (violation.type === "outside_available_window") return `${title} 超出你填写的可用时间`;
-      if (violation.type === "high_load_in_low_energy_window") return `${title} 可能落在低能量时段`;
-      if (violation.type === "low_task_clarity") return `${title} 的目标还需要再明确`;
-      if (violation.type === "missing_deadline") return `${title} 还缺截止日期`;
-      if (violation.type === "missing_duration") return `${title} 还缺预计时长`;
+      const title = task?.title || (isEnglish() ? "Task" : "任务");
+      if (violation.type === "outside_available_window") return isEnglish() ? `${title} is outside your available window` : `${title} 超出你填写的可用时间`;
+      if (violation.type === "high_load_in_low_energy_window") return isEnglish() ? `${title} may fall in a low-energy window` : `${title} 可能落在低能量时段`;
+      if (violation.type === "low_task_clarity") return isEnglish() ? `${title} needs a clearer goal` : `${title} 的目标还需要再明确`;
+      if (violation.type === "missing_deadline") return isEnglish() ? `${title} is missing a deadline` : `${title} 还缺截止日期`;
+      if (violation.type === "missing_duration") return isEnglish() ? `${title} is missing estimated duration` : `${title} 还缺预计时长`;
       return "";
     })
     .filter(Boolean);
   pendingSchedule.classList.remove("hidden");
-  pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || "已生成建议安排。"} ${violationLines.join("；")} ${lines.join("；")}`;
+  pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || (isEnglish() ? "Suggested schedule generated." : "已生成建议安排。")} ${violationLines.join("；")} ${lines.join("；")}`;
 }
 
 function createCheckpointFromFeedback(text) {
@@ -1830,8 +2177,8 @@ function createCheckpointFromFeedback(text) {
 
 function openTaskDialog(task = null) {
   editingTaskId = task?.id || null;
-  taskDialogTitle.textContent = task ? "编辑任务" : "新增学术任务";
-  saveTaskBtn.textContent = task ? "保存修改" : "保存";
+  taskDialogTitle.textContent = task ? (isEnglish() ? "Edit Task" : "编辑任务") : (isEnglish() ? "Add Academic Task" : "新增学术任务");
+  saveTaskBtn.textContent = task ? (isEnglish() ? "Save changes" : "保存修改") : (isEnglish() ? "Save" : "保存");
   deleteTaskBtn.classList.toggle("hidden", !task);
   document.getElementById("newTitle").value = task?.title || "整理 HumanOS related work";
   document.getElementById("newDue").value = task?.due || "周五 18:00";
@@ -1917,11 +2264,11 @@ debugTimeInput.addEventListener("keydown", (event) => {
 
 document.getElementById("autoScheduleBtn").addEventListener("click", async () => {
   if (!tasks.length) {
-    addChatMessage("ai", "暂无任务", "请先在左侧对话框输入任务。");
+    addChatMessage("ai", t("noTaskAuto"), t("noTaskAutoBody"));
     render();
     return;
   }
-  await requestTentativeSchedule("根据当前任务和状态生成安排。");
+  await requestTentativeSchedule(t("autoReason"));
   render();
 });
 
@@ -1939,7 +2286,7 @@ confirmScheduleBtn.addEventListener("click", async () => {
       await patchBackendTask(target);
     }
   }
-  addChatMessage("ai", "安排已确认", "我已经把这些时间块加入右侧日历。到对应时间点时，我会主动询问任务情况。");
+  addChatMessage("ai", t("scheduleConfirmed"), t("scheduleConfirmedBody"));
   pendingSchedulePlan = null;
   activeSelectionMode = "auto";
   activeId = defaultActiveTaskId();
@@ -1949,12 +2296,63 @@ confirmScheduleBtn.addEventListener("click", async () => {
 
 rejectScheduleBtn.addEventListener("click", () => {
   pendingSchedulePlan = null;
-  addChatMessage("ai", "已取消安排", "这次建议没有加入日历。你可以继续描述限制条件，我会重新生成。");
+  addChatMessage("ai", t("scheduleCanceled"), t("scheduleCanceledBody"));
   render();
 });
 
 document.getElementById("addTaskBtn").addEventListener("click", () => {
   openTaskDialog();
+});
+
+sidebarNewTaskBtn?.addEventListener("click", () => {
+  openTaskDialog();
+});
+
+langToggleBtn?.addEventListener("click", () => {
+  currentLang = isEnglish() ? "zh" : "en";
+  localStorage.setItem(LANG_KEY, currentLang);
+  setAuthMode(authMode);
+  render();
+});
+
+accountChipBtn?.addEventListener("click", () => {
+  showProfileHomeView();
+});
+
+sidebarCollapseBtn?.addEventListener("click", () => {
+  document.body.classList.toggle("sidebar-collapsed");
+  applyTranslations();
+});
+
+sidebarChatBtn?.addEventListener("click", () => {
+  showWorkspaceView();
+  document.body.classList.remove("sidebar-collapsed");
+  chatInput.focus();
+});
+
+sidebarCalendarBtn?.addEventListener("click", () => {
+  showWorkspaceView();
+  calendar.scrollIntoView({ block: "nearest" });
+  calendar.focus?.();
+});
+
+sidebarTasksBtn?.addEventListener("click", () => {
+  showWorkspaceView();
+  if (selectedTask()) {
+    document.querySelector(".motion-right-rail")?.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    openTaskDialog();
+  }
+});
+
+miniPrevBtn?.addEventListener("click", () => {
+  miniCalendarCursor = new Date(miniCalendarCursor.getFullYear(), miniCalendarCursor.getMonth() - 1, 1);
+  renderMotionShellMeta();
+});
+
+miniNextBtn?.addEventListener("click", () => {
+  miniCalendarCursor = new Date(miniCalendarCursor.getFullYear(), miniCalendarCursor.getMonth() + 1, 1);
+  renderMotionShellMeta();
 });
 
 chatSendBtn.addEventListener("click", () => {
@@ -1974,6 +2372,16 @@ workspaceNavBtn.addEventListener("click", () => {
 
 profileHomeBtn.addEventListener("click", () => {
   showProfileHomeView();
+});
+
+sidebarProfileBtn?.addEventListener("click", () => {
+  showProfileHomeView();
+});
+
+todayJumpBtn?.addEventListener("click", () => {
+  miniCalendarCursor = new Date(getNow().getFullYear(), getNow().getMonth(), 1);
+  resetDebugNow(false);
+  render();
 });
 
 closeTaskDialogBtn.addEventListener("click", () => {
@@ -2001,7 +2409,7 @@ taskForm.addEventListener("submit", async (event) => {
       tasks[index] = updated;
       selectTask(updated.id, "manual");
       await patchBackendTask(updated);
-      addChatMessage("ai", "编辑判断", `${updated.title} 已更新。${stateBasedScheduleNote(updated)}`);
+      addChatMessage("ai", t("editDecision"), `${updated.title} ${isEnglish() ? "was updated." : "已更新。"}${stateBasedScheduleNote(updated)}`);
       setBackendStatus("任务已更新", backendOnline);
     }
   } else {
@@ -2010,7 +2418,7 @@ taskForm.addEventListener("submit", async (event) => {
     const created = await createTaskFromPayload(task);
     tasks.push(created);
     selectTask(created.id, "manual");
-    addChatMessage("ai", "已手动添加", `${created.title} 已加入日历视图。`);
+    addChatMessage("ai", t("manualAdded"), `${created.title} ${t("manualAddedBody")}`);
     setBackendStatus("任务已保存", backendOnline);
   }
   editingTaskId = null;
@@ -2033,6 +2441,16 @@ document.getElementById("saveProfileBtn").addEventListener("click", () => {
 
 openProfileWizardBtn.addEventListener("click", () => {
   showProfileSetup();
+});
+
+wizardPrevBtn.addEventListener("click", () => {
+  wizardStep = Math.max(0, wizardStep - 1);
+  updateWizardStep();
+});
+
+wizardNextBtn.addEventListener("click", () => {
+  wizardStep = Math.min(WIZARD_STEP_COUNT - 1, wizardStep + 1);
+  updateWizardStep();
 });
 
 profileWizard.addEventListener("submit", (event) => {

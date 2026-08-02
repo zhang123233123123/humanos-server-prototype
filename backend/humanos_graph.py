@@ -264,7 +264,7 @@ def find_plan_violations(
 ) -> list[dict[str, Any]]:
     profile = profile or {}
     preferences = profile.get("task_preferences") or {}
-    available_windows = parse_time_ranges(preferences.get("available_windows")) or [(9.0, 17.0)]
+    available_windows = parse_time_ranges(preferences.get("available_windows")) or [(0.0, 24.0)]
     low_energy_windows = profile_windows(profile, "low_energy_window")
     task_by_id = {task.get("id"): task for task in tasks}
     violations: list[dict[str, Any]] = []
@@ -338,7 +338,7 @@ def scheduler_node(_: Any):
         stress = int(runtime_state.get("stress", 4))
         palette = ["blue", "green", "violet", "gold"]
         priority_rank = {"高": 0, "中": 1, "低": 2}
-        available_windows = parse_time_ranges(preferences.get("available_windows")) or [(9.0, 17.0)]
+        available_windows = parse_time_ranges(preferences.get("available_windows")) or [(0.0, 24.0)]
         deep_work_windows = profile_windows(profile, "deep_work_window")
         low_energy_windows = profile_windows(profile, "low_energy_window")
         preferred_minutes = int(preferences.get("preferred_session_minutes") or 60)

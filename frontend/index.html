@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HumanOS Task Resumption Prototype</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=20260802-debug-time">
+  <link rel="stylesheet" href="styles.css?v=20260802-i18n-controls">
 </head>
 <body>
   <section class="auth-screen" id="authScreen">
@@ -38,90 +38,126 @@
           <h1>建立学习偏好</h1>
           <p>先回答几个问题，再进入日历和任务空间。</p>
         </div>
-        <span class="status-pill">Profile</span>
+        <span class="status-pill" id="wizardStepBadge">1 / 4</span>
       </div>
 
-      <div class="wizard-grid">
-        <label>你现在主要是哪类学习 / 研究场景？
-          <select id="wizardRole">
-            <option value="研究型学生">研究型学生</option>
-            <option value="课程学习学生">课程学习学生</option>
-            <option value="论文写作阶段">论文写作阶段</option>
-            <option value="项目开发阶段">项目开发阶段</option>
-          </select>
-        </label>
-        <label>一天里最适合做深度任务的时间
-          <input id="wizardDeepWork" type="text" value="09:00-11:30">
-        </label>
-        <label>这周通常有哪些可用于学习的时间段？
-          <input id="wizardAvailableWindows" type="text" placeholder="例如：周一/三 19:00-21:00，周六上午">
-        </label>
-        <label>一天里通常精力较低的时间
-          <input id="wizardLowEnergy" type="text" value="14:00-15:30">
-        </label>
-        <label>一次专注学习你通常能持续多久？
-          <select id="wizardSessionLength">
-            <option value="25">约 25 分钟</option>
-            <option value="45" selected>约 45 分钟</option>
-            <option value="60">约 60 分钟</option>
-            <option value="90">约 90 分钟</option>
-          </select>
-        </label>
-        <label>你更偏好的学习材料 / 方式
-          <select id="wizardLearningMode">
-            <option value="reading_writing">阅读和写作</option>
-            <option value="visual">图表 / 视频 / 可视化</option>
-            <option value="discussion">讨论 / 讲给别人听</option>
-            <option value="practice">做题 / 实操 / 项目推进</option>
-            <option value="mixed">混合方式</option>
-          </select>
-        </label>
-        <label>当前最主要的课程 / 研究任务
-          <input id="wizardCurrentCourses" type="text" placeholder="例如：AI planning论文、用户访谈总结、VLA复现">
-        </label>
-        <label>最近一周最紧的截止日期 / 承诺
-          <input id="wizardNearDeadlines" type="text" placeholder="例如：周五前发给队友，周日完成初稿">
-        </label>
-        <label>你现在常用哪些计划工具？
-          <input id="wizardTools" type="text" placeholder="Calendar, Todo, Notion, Excel...">
-        </label>
+      <div class="wizard-progress" aria-hidden="true">
+        <span class="active"></span>
+        <span></span>
+        <span></span>
+        <span></span>
       </div>
 
-      <fieldset>
-        <legend>计划最容易失效的地方</legend>
-        <label><input type="checkbox" name="wizardBlocker" value="任务不够清楚"> 任务不够清楚</label>
-        <label><input type="checkbox" name="wizardBlocker" value="状态太累或焦虑"> 状态太累或焦虑</label>
-        <label><input type="checkbox" name="wizardBlocker" value="被外部事情打断"> 被外部事情打断</label>
-        <label><input type="checkbox" name="wizardBlocker" value="切换后回不来"> 切换后回不来</label>
-      </fieldset>
+      <section class="wizard-step active" data-step="0">
+        <div class="wizard-section-title">
+          <h2>学习身份</h2>
+          <p>先确定你的主要学习场景。</p>
+        </div>
+        <div class="wizard-grid">
+          <label>你现在主要是哪类学习 / 研究场景？
+            <select id="wizardRole">
+              <option value="研究型学生">研究型学生</option>
+              <option value="课程学习学生">课程学习学生</option>
+              <option value="论文写作阶段">论文写作阶段</option>
+              <option value="项目开发阶段">项目开发阶段</option>
+            </select>
+          </label>
+          <label>你更偏好的学习材料 / 方式
+            <select id="wizardLearningMode">
+              <option value="reading_writing">阅读和写作</option>
+              <option value="visual">图表 / 视频 / 可视化</option>
+              <option value="discussion">讨论 / 讲给别人听</option>
+              <option value="practice">做题 / 实操 / 项目推进</option>
+              <option value="mixed">混合方式</option>
+            </select>
+          </label>
+          <label>当前最主要的课程 / 研究任务
+            <input id="wizardCurrentCourses" type="text" placeholder="例如：AI planning论文、用户访谈总结、VLA复现">
+          </label>
+          <label>你现在常用哪些计划工具？
+            <input id="wizardTools" type="text" placeholder="Calendar, Todo, Notion, Excel...">
+          </label>
+        </div>
+      </section>
 
-      <label>最近一次“有计划但没有推进”的情况
-        <textarea id="wizardPlanningGap" rows="4" placeholder="例如：明明写在日历里，但到时间后不知道从哪里开始。"></textarea>
-      </label>
+      <section class="wizard-step" data-step="1">
+        <div class="wizard-section-title">
+          <h2>每周上下文</h2>
+          <p>这些信息用于安排任务，不会每次都问。</p>
+        </div>
+        <div class="wizard-grid">
+          <label>这周通常有哪些可用于学习的时间段？
+            <input id="wizardAvailableWindows" type="text" placeholder="例如：周一/三 19:00-21:00，周六上午">
+          </label>
+          <label>最近一周最紧的截止日期 / 承诺
+            <input id="wizardNearDeadlines" type="text" placeholder="例如：周五前发给队友，周日完成初稿">
+          </label>
+          <label>接下来两周最重要的学习目标
+            <textarea id="wizardGoal" rows="4" placeholder="例如：读完 planning 相关论文并整理 gap。"></textarea>
+          </label>
+        </div>
+      </section>
 
-      <div class="wizard-grid">
-        <label>接下来两周最重要的学习目标
-          <textarea id="wizardGoal" rows="3" placeholder="例如：读完 planning 相关论文并整理 gap。"></textarea>
-        </label>
-        <label>你希望系统主要帮你降低哪种负担？
-          <select id="wizardSupportNeed">
-            <option value="clarify_next_action">把任务变成下一步行动</option>
-            <option value="schedule_feasible_plan">安排可执行时间表</option>
-            <option value="recover_after_interruption">中断后帮我接回来</option>
-            <option value="balance_load_and_rest">平衡负荷和休息</option>
-          </select>
-        </label>
-      </div>
+      <section class="wizard-step" data-step="2">
+        <div class="wizard-section-title">
+          <h2>状态偏好</h2>
+          <p>帮助系统判断什么时间适合深度任务。</p>
+        </div>
+        <div class="wizard-grid">
+          <label>一天里最适合做深度任务的时间
+            <input id="wizardDeepWork" type="text" value="09:00-11:30">
+          </label>
+          <label>一天里通常精力较低的时间
+            <input id="wizardLowEnergy" type="text" value="14:00-15:30">
+          </label>
+          <label>一次专注学习你通常能持续多久？
+            <select id="wizardSessionLength">
+              <option value="25">约 25 分钟</option>
+              <option value="45" selected>约 45 分钟</option>
+              <option value="60">约 60 分钟</option>
+              <option value="90">约 90 分钟</option>
+            </select>
+          </label>
+          <label>调整计划时你希望系统怎么做？
+            <select id="wizardControl">
+              <option value="confirm_before_reschedule">调整前需要我确认</option>
+              <option value="allow_low_risk_auto">低风险建议可以自动放进日历</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
-      <label>调整计划时你希望系统怎么做？
-        <select id="wizardControl">
-          <option value="confirm_before_reschedule">调整前需要我确认</option>
-          <option value="allow_low_risk_auto">低风险建议可以自动放进日历</option>
-        </select>
-      </label>
+      <section class="wizard-step" data-step="3">
+        <div class="wizard-section-title">
+          <h2>计划失效模式</h2>
+          <p>用于判断任务为什么会卡住，以及应该如何恢复。</p>
+        </div>
+        <fieldset>
+          <legend>计划最容易失效的地方</legend>
+          <label><input type="checkbox" name="wizardBlocker" value="任务不够清楚"> 任务不够清楚</label>
+          <label><input type="checkbox" name="wizardBlocker" value="状态太累或焦虑"> 状态太累或焦虑</label>
+          <label><input type="checkbox" name="wizardBlocker" value="被外部事情打断"> 被外部事情打断</label>
+          <label><input type="checkbox" name="wizardBlocker" value="切换后回不来"> 切换后回不来</label>
+        </fieldset>
+        <div class="wizard-grid">
+          <label>最近一次“有计划但没有推进”的情况
+            <textarea id="wizardPlanningGap" rows="4" placeholder="例如：明明写在日历里，但到时间后不知道从哪里开始。"></textarea>
+          </label>
+          <label>你希望系统主要帮你降低哪种负担？
+            <select id="wizardSupportNeed">
+              <option value="clarify_next_action">把任务变成下一步行动</option>
+              <option value="schedule_feasible_plan">安排可执行时间表</option>
+              <option value="recover_after_interruption">中断后帮我接回来</option>
+              <option value="balance_load_and_rest">平衡负荷和休息</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
       <div class="wizard-actions">
         <button class="ghost" id="skipProfileBtn" type="button">稍后设置</button>
+        <button class="ghost hidden" id="wizardPrevBtn" type="button">上一步</button>
+        <button class="primary" id="wizardNextBtn" type="button">下一步</button>
         <button class="primary" id="saveWizardBtn" type="submit">进入工作台</button>
       </div>
       <p class="auth-error" id="wizardError"></p>
@@ -132,7 +168,7 @@
     <header class="topbar">
       <div>
         <h1>HumanOS</h1>
-        <p>AI 学习计划 · 中断恢复 · 个性化安排</p>
+        <p data-i18n="appSubtitle">AI 学习计划 · 中断恢复 · 个性化安排</p>
       </div>
       <div class="top-actions">
         <div class="debug-time-control" aria-label="Debug 时间控制">
@@ -143,36 +179,59 @@
           <button class="ghost compact" id="debugResetTimeBtn" type="button">真实时间</button>
         </div>
         <span class="status-pill" id="userBadge">未登录</span>
-        <button class="ghost" id="workspaceNavBtn" type="button">工作台</button>
-        <button class="ghost" id="profileHomeBtn" type="button">个人主页</button>
-        <button class="ghost" id="logoutBtn" type="button">退出</button>
-        <button class="primary" id="addTaskBtn" type="button">新增任务</button>
+        <button class="ghost compact" id="langToggleBtn" type="button" aria-label="Switch language">EN</button>
+        <button class="ghost" id="workspaceNavBtn" type="button" data-i18n="workspace">工作台</button>
+        <button class="ghost" id="profileHomeBtn" type="button" data-i18n="profileHome">个人主页</button>
+        <button class="ghost" id="logoutBtn" type="button" data-i18n="logout">退出</button>
+        <button class="primary" id="addTaskBtn" type="button" data-i18n="addTask">新增任务</button>
       </div>
     </header>
 
     <section class="app-view" id="workspaceView">
-    <section class="system-strip" aria-label="系统状态">
-      <article>
-        <span>Ready Queue</span>
-        <strong>候选任务池</strong>
-      </article>
-      <article>
-        <span>CPU Scheduler</span>
-        <strong>状态 × 任务需求匹配</strong>
-      </article>
-      <article>
-        <span>Context Switch</span>
-        <strong>切换前保存上下文</strong>
-      </article>
-    </section>
+    <section class="workspace motion-layout">
+      <aside class="left-rail motion-sidebar">
+        <div class="sidebar-account">
+          <button class="account-chip" id="accountChipBtn" type="button" aria-label="账户">
+            <span class="avatar-dot">H</span>
+            <span class="account-text">
+              <strong>HumanOS</strong>
+              <small id="sidebarDateLabel">今天</small>
+            </span>
+          </button>
+          <button class="icon-btn sidebar-collapse-btn" id="sidebarCollapseBtn" type="button" title="收起侧边栏">‹‹</button>
+        </div>
 
-    <section class="workspace">
-      <aside class="left-rail">
+        <div class="sidebar-actions">
+          <button class="primary sidebar-new-btn" id="sidebarNewTaskBtn" type="button">＋ <span data-i18n="newShort">New</span></button>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="HumanOS 导航">
+          <button class="nav-item active" id="sidebarChatBtn" type="button">
+            <span>☰</span>
+            <strong data-i18n="aiChat">AI Chat</strong>
+            <small>⌘ /</small>
+          </button>
+          <button class="nav-item" id="sidebarCalendarBtn" type="button">
+            <span>◷</span>
+            <strong data-i18n="calendar">Calendar</strong>
+            <small id="navDateLabel">Today</small>
+          </button>
+          <button class="nav-item" id="sidebarTasksBtn" type="button">
+            <span>□</span>
+            <strong data-i18n="tasks">Tasks</strong>
+            <small id="navTaskCount">0</small>
+          </button>
+          <button class="nav-item" id="sidebarProfileBtn" type="button">
+            <span>⚙</span>
+            <strong data-i18n="profile">Profile</strong>
+          </button>
+        </nav>
+
         <section class="panel chat-panel">
           <div class="panel-head">
             <div>
-              <h2>AI 学习助手</h2>
-              <p>输入任务、状态和中断原因</p>
+            <h2 data-i18n="aiAssistant">AI 学习助手</h2>
+              <p data-i18n="assistantHint">输入任务、状态和中断原因</p>
             </div>
             <span class="status-pill" id="modePill">Idle</span>
           </div>
@@ -182,31 +241,31 @@
           <section class="chat-compose">
             <textarea id="chatInput" rows="3" placeholder="说一句任务、进展或卡点。排日历至少需要：哪一天、几点、预计多久。Enter 发送，Shift+Enter 换行。"></textarea>
             <div class="button-row">
-              <button class="primary wide" id="chatSendBtn" type="button">发送</button>
+              <button class="primary wide" id="chatSendBtn" type="button" data-i18n="send">发送</button>
             </div>
           </section>
         </section>
 
         <section class="panel state-panel">
           <div class="mini-head">
-            <h3>当前状态</h3>
-            <span>用于安排今天任务</span>
+            <h3 data-i18n="currentState">当前状态</h3>
+            <span data-i18n="stateUse">用于安排今天任务</span>
           </div>
           <div class="state-grid">
-            <label>专注
+            <label><span><span data-i18n="focus">专注</span> <strong id="focusValue">5</strong></span>
               <input id="focusInput" type="range" min="1" max="7" value="5">
             </label>
-            <label>精力
+            <label><span><span data-i18n="energy">精力</span> <strong id="energyValue">4</strong></span>
               <input id="energyInput" type="range" min="1" max="7" value="4">
             </label>
-            <label>压力
+            <label><span><span data-i18n="stress">压力</span> <strong id="stressValue">5</strong></span>
               <input id="stressInput" type="range" min="1" max="7" value="5">
             </label>
           </div>
         </section>
       </aside>
 
-      <section class="workbench">
+      <section class="workbench motion-calendar-stage">
         <section class="panel calendar-panel">
           <div class="panel-head">
             <div>
@@ -215,9 +274,10 @@
               <span class="today-badge" id="todayBadge">今天</span>
             </div>
             <div class="view-actions">
+              <button class="ghost compact" id="todayJumpBtn" type="button" data-i18n="today">Today</button>
               <div class="segmented" role="tablist" aria-label="视图">
-                <button class="active" id="dayViewBtn" type="button">日</button>
-                <button id="weekViewBtn" type="button">周</button>
+                <button class="active" id="dayViewBtn" type="button" data-i18n="day">日</button>
+                <button id="weekViewBtn" type="button" data-i18n="week">周</button>
               </div>
               <button class="icon-btn" id="autoScheduleBtn" type="button" title="自动安排">↻</button>
             </div>
@@ -229,42 +289,49 @@
               <p id="pendingScheduleText"></p>
             </div>
             <div class="button-row">
-              <button class="ghost" id="rejectScheduleBtn" type="button">取消</button>
-              <button class="primary" id="confirmScheduleBtn" type="button">确认加入日历</button>
+              <button class="ghost" id="rejectScheduleBtn" type="button" data-i18n="cancel">取消</button>
+              <button class="primary" id="confirmScheduleBtn" type="button" data-i18n="confirmCalendar">确认加入日历</button>
             </div>
           </div>
         </section>
+      </section>
 
-        <section class="below-workbench">
-          <aside class="panel inspector-panel">
+      <aside class="motion-right-rail">
+        <section class="panel mini-calendar-panel">
+          <div class="mini-calendar-head">
+            <strong id="miniMonthLabel">August 2026</strong>
+            <div>
+              <button class="icon-btn" id="miniPrevBtn" type="button" title="上个月">‹</button>
+              <button class="icon-btn" id="miniNextBtn" type="button" title="下个月">›</button>
+            </div>
+          </div>
+          <div class="mini-weekdays" aria-hidden="true">
+            <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+          </div>
+          <div class="mini-calendar-grid" id="miniCalendarGrid"></div>
+        </section>
+
+        <aside class="panel inspector-panel">
             <div class="panel-head">
               <div>
-                <h2>任务详情</h2>
+                <h2 data-i18n="taskDetail">任务详情</h2>
                 <p id="resumeSubtitle">选择一个任务</p>
               </div>
             </div>
 
             <section class="active-task" id="activeTask"></section>
 
-            <section class="scheduler-lens-box">
-              <div class="mini-head">
-                <h3>调度状态映射</h3>
-                <span>OS 原理如何解释当前任务</span>
-              </div>
-              <div id="schedulingLens"></div>
-            </section>
-
             <section class="context-window-box">
               <div class="mini-head">
-                <h3>上下文窗口</h3>
-                <span>恢复任务时先看这里</span>
+                <h3 data-i18n="contextWindow">上下文窗口</h3>
+                <span data-i18n="contextHint">恢复任务时先看这里</span>
               </div>
               <div class="context-window" id="contextWindow"></div>
             </section>
 
             <section class="checkpoint-box">
               <div class="mini-head">
-                <h3>中断记录</h3>
+                <h3 data-i18n="interruptions">中断记录</h3>
                 <span id="checkpointCount">0 条</span>
               </div>
               <div id="checkpointView" class="checkpoint-view"></div>
@@ -272,84 +339,15 @@
 
             <section class="brief-box">
               <div class="mini-head">
-                <h3>恢复提示</h3>
-                <span>继续开始</span>
+                <h3 data-i18n="resumeTip">恢复提示</h3>
+                <span data-i18n="continueStart">继续开始</span>
               </div>
               <div class="brief" id="resumeBrief"></div>
             </section>
-          </aside>
-        </section>
-      </section>
+        </aside>
+      </aside>
     </section>
 
-    <section class="lower-grid">
-      <article class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>安排理由</h2>
-            <p>给用户保留最终控制权</p>
-          </div>
-        </div>
-        <div class="reasoning" id="reasoning"></div>
-      </article>
-
-      <article class="panel os-mapping-panel">
-        <div class="panel-head">
-          <div>
-            <h2>计算机调度原理映射</h2>
-            <p>从操作系统调度流程转译到 HumanOS 的产品机制</p>
-          </div>
-          <a class="ghost link-button" href="../../assets/diagrams/HumanOS_computational_scheduling_interactive.html" target="_blank" rel="noopener">完整映射图</a>
-        </div>
-        <div class="os-flow" aria-label="OS 调度到 HumanOS 映射">
-          <div class="os-node blue">
-            <span>Job Arrival</span>
-            <strong>任务输入</strong>
-            <p>自然语言被转成可调度任务对象。</p>
-          </div>
-          <div class="os-node green">
-            <span>Ready Queue</span>
-            <strong>候选任务池</strong>
-            <p>任务先进入队列，根据状态等待选择。</p>
-          </div>
-          <div class="os-node gold">
-            <span>CPU Scheduler</span>
-            <strong>匹配当前资源</strong>
-            <p>综合截止期、优先级、可用时间和状态。</p>
-          </div>
-          <div class="os-node coral">
-            <span>Dispatcher</span>
-            <strong>用户确认</strong>
-            <p>生成可解释安排，确认后进入日历。</p>
-          </div>
-          <div class="os-node red">
-            <span>Running</span>
-            <strong>执行与追踪</strong>
-            <p>记录进展、卡点和状态变化。</p>
-          </div>
-          <div class="os-node red">
-            <span>Interrupt</span>
-            <strong>触发重排</strong>
-            <p>打断或状态变化时才请求调整。</p>
-          </div>
-          <div class="os-node gold">
-            <span>Context Switch</span>
-            <strong>保存上下文</strong>
-            <p>保存进度、下一步和开放问题。</p>
-          </div>
-          <div class="os-node blue">
-            <span>Blocked</span>
-            <strong>等待依赖</strong>
-            <p>等待资料、回复或外部条件。</p>
-          </div>
-          <div class="os-node gray">
-            <span>Terminated</span>
-            <strong>复盘更新</strong>
-            <p>完成后更新个人任务需求基线。</p>
-          </div>
-        </div>
-      </article>
-    </section>
     </section>
 
     <section class="app-view hidden" id="profileHomeView">
@@ -446,6 +444,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260802-debug-time"></script>
+  <script src="app.js?v=20260802-i18n-controls"></script>
 </body>
 </html>
