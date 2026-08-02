@@ -86,11 +86,11 @@ def infer_duration_minutes(text: str) -> int | None:
     if chinese_match:
         amount = chinese_amounts[chinese_match.group(1)]
         return int(amount * 60) if chinese_match.group(2) == "小时" else int(amount)
-    match = re.search(r"(\d+)\s*(个)?\s*(分钟|min|小时|h)", text, re.I)
+    match = re.search(r"(\d+)\s*(?:个\s*)?(分钟|min|小时|h)", text, re.I)
     if not match:
         return None
     amount = int(match.group(1))
-    return amount * 60 if match.group(3).lower() in {"小时", "h"} else amount
+    return amount * 60 if match.group(2).lower() in {"小时", "h"} else amount
 
 
 def chat_completion(messages: list[dict], temperature: float = 0.2) -> object | None:
@@ -506,20 +506,175 @@ class Store:
             return "coding"
         return "general"
 
+    def infer_schedule_task_type(self, payload: dict) -> str:
+        explicit = payload.get("task_type") or payload.get("taskType")
+        if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
+            return explicit
+        due = str(payload.get("due") or payload.get("deadline") or "")
+        context = str(payload.get("context") or "")
+        text = f"{due} {context}"
+        has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
+        fixed_words = re.search(r"(会议|开会|组会|上课|面试|appointment|meeting)", text, re.I)
+        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due)", text, re.I)
+        if has_clock and (fixed_words or not deadline_words):
+            return "fixed_event"
+        return "flexible_task"
+
+    def local_task_dimensions(self, task: dict, chat_context: dict | None = None) -> dict:
+        text = f"{task.get('title', '')} {task.get('context', '')}".lower()
+        explicit_load = task.get("cognitive_load")
+        explicit_ambiguity = task.get("ambiguity")
+        high_load_terms = ["论文", "写", "coding", "代码", "研究", "阅读", "planning", "复现", "实验", "分析"]
+        low_load_terms = ["取", "拿", "买", "发邮件", "报销", "预约", "整理文件"]
+        dependency_terms = ["等", "等待", "反馈", "队友", "老师", "导师", "审批", "回复", "确认"]
+        collaboration_terms = ["会议", "开会", "组会", "讨论", "队友", "同学", "老师", "导师", "team", "meeting"]
+        unclear_terms = ["看看", "处理", "搞一下", "弄", "完善", "研究一下", "不清楚", "卡住", "想想"]
+        resistance_terms = ["不想", "拖延", "焦虑", "压力", "烦", "累", "害怕", "开始不了"]
+
+        if explicit_load in {"high", "medium", "low"}:
+            cognitive_load = explicit_load
+        elif any(term in text for term in high_load_terms):
+            cognitive_load = "high"
+        elif any(term in text for term in low_load_terms):
+            cognitive_load = "low"
+        else:
+            cognitive_load = "medium"
+
+        if explicit_ambiguity in {"high", "medium", "low"}:
+            ambiguity = explicit_ambiguity
+        elif any(term in text for term in unclear_terms):
+            ambiguity = "high"
+        elif len(str(task.get("title", ""))) <= 4:
+            ambiguity = "medium"
+        else:
+            ambiguity = "low"
+
+        dependency_status = "waiting_external" if any(term in text for term in dependency_terms) else "self_contained"
+        collaboration_required = any(term in text for term in collaboration_terms)
+        emotional_resistance = "high" if any(term in text for term in resistance_terms) else "medium" if ambiguity == "high" else "low"
+        duration = safe_duration_minutes(task.get("estimated_duration") or task.get("duration"), 60)
+        splittable = cognitive_load == "high" or duration >= 90
+        clarity = "low" if ambiguity == "high" else "medium" if ambiguity == "medium" else "high"
+        recovery_cost = "high" if cognitive_load == "high" or ambiguity == "high" else "medium" if collaboration_required else "low"
+
+        return {
+            "cognitive_load": cognitive_load,
+            "ambiguity": ambiguity,
+            "clarity": clarity,
+            "splittable": splittable,
+            "recovery_cost": recovery_cost,
+            "dependency_status": dependency_status,
+            "collaboration_required": collaboration_required,
+            "emotional_resistance": emotional_resistance,
+            "confidence": 0.68 if ambiguity == "high" else 0.78,
+            "source": "local_rules",
+        }
+
+    def task_dimension_agent(self, task: dict, chat_context: dict | None = None) -> dict:
+        fallback = self.local_task_dimensions(task, chat_context)
+        llm_result = chat_completion(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是 HumanOS 的 Task Dimension Agent。只输出 JSON。"
+                        "判断任务用于调度的认知维度，不要输出面向用户的话。"
+                        "不要改变任务标题、时间和截止日期。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": as_json(
+                        {
+                            "task": {
+                                "title": task.get("title"),
+                                "context": task.get("context"),
+                                "task_type": task.get("task_type") or task.get("taskType"),
+                                "deadline": task.get("deadline") or task.get("due"),
+                                "estimated_duration": task.get("estimated_duration") or task.get("duration"),
+                            },
+                            "recent_context": chat_context or {},
+                            "schema": {
+                                "cognitive_load": "high/medium/low",
+                                "ambiguity": "high/medium/low",
+                                "clarity": "high/medium/low",
+                                "splittable": "true/false",
+                                "recovery_cost": "high/medium/low",
+                                "dependency_status": "self_contained/waiting_external/blocked_by_unknown",
+                                "collaboration_required": "true/false",
+                                "emotional_resistance": "high/medium/low",
+                                "confidence": "0.0-1.0",
+                            },
+                        }
+                    ),
+                },
+            ]
+        )
+        if not isinstance(llm_result, dict):
+            return fallback
+        dimensions = {**fallback}
+        allowed_levels = {"high", "medium", "low"}
+        for key in ["cognitive_load", "ambiguity", "clarity", "recovery_cost", "emotional_resistance"]:
+            value = str(llm_result.get(key) or "")
+            if value in allowed_levels:
+                dimensions[key] = value
+        dependency = str(llm_result.get("dependency_status") or "")
+        if dependency in {"self_contained", "waiting_external", "blocked_by_unknown"}:
+            dimensions["dependency_status"] = dependency
+        for key in ["splittable", "collaboration_required"]:
+            if key in llm_result:
+                dimensions[key] = bool(llm_result[key])
+        try:
+            dimensions["confidence"] = round(float(llm_result.get("confidence", dimensions["confidence"])), 2)
+        except (TypeError, ValueError):
+            pass
+        dimensions["source"] = "deepseek"
+        return dimensions
+
     def create_task(self, user_id: str, payload: dict) -> dict:
         task_id = payload.get("id") or new_id("task")
         title = payload.get("title", "未命名任务")
         context = payload.get("context", "")
         task_type = payload.get("type") or self.infer_task_type(title, context)
+        schedule_task_type = self.infer_schedule_task_type(payload)
+        deadline = payload.get("deadline") or payload.get("due")
         priority = payload.get("priority", "中")
-        duration = infer_duration_minutes(f"{title} {context}") or int(payload.get("duration", 60))
-        status = payload.get("status", "queued")
-        cognitive_load = payload.get(
-            "cognitive_load", "high" if task_type in {"writing", "coding"} else "medium"
+        duration = infer_duration_minutes(f"{title} {context}") or int(
+            payload.get("estimated_duration") or payload.get("duration", 60)
         )
-        ambiguity = payload.get("ambiguity", "medium" if task_type in {"writing", "research"} else "low")
+        status = payload.get("status", "queued")
+        dimensions = self.task_dimension_agent(
+            {
+                **payload,
+                "title": title,
+                "context": context,
+                "type": task_type,
+                "task_type": schedule_task_type,
+                "deadline": deadline,
+                "estimated_duration": duration,
+            },
+            payload.get("chat_context"),
+        )
+        cognitive_load = dimensions.get(
+            "cognitive_load",
+            payload.get("cognitive_load") or ("high" if task_type in {"writing", "coding"} else "medium"),
+        )
+        ambiguity = dimensions.get(
+            "ambiguity",
+            payload.get("ambiguity") or ("medium" if task_type in {"writing", "research"} else "low"),
+        )
         switch_cost = payload.get("switch_cost", "high" if cognitive_load == "high" else "medium")
-        reentry_cost = payload.get("reentry_cost", switch_cost)
+        reentry_cost = payload.get("reentry_cost") or dimensions.get("recovery_cost") or switch_cost
+        context_window = payload.get("contextWindow") or payload.get("context_window") or {}
+        if not isinstance(context_window, dict):
+            context_window = {}
+        context_window = {
+            **context_window,
+            "taskType": schedule_task_type,
+            "deadline": deadline,
+            "estimatedDuration": duration,
+            "dimensions": dimensions,
+        }
         timestamp = now_ms()
         with self.connect() as conn:
             conn.execute(
@@ -536,12 +691,12 @@ class Store:
                     user_id,
                     title,
                     task_type,
-                    payload.get("due"),
+                    payload.get("due") or deadline,
                     duration,
                     priority,
                     status,
                     context,
-                    as_json(payload.get("contextWindow") or payload.get("context_window") or {}),
+                    as_json(context_window),
                     cognitive_load,
                     ambiguity,
                     switch_cost,
@@ -558,10 +713,17 @@ class Store:
             source_id=task_id,
             task_id=task_id,
             text=f"Task: {title}. Type: {task_type}. Context: {context}. Priority: {priority}.",
-            metadata={"task_type": task_type, "priority": priority, "status": status},
+            metadata={
+                "task_type": task_type,
+                "schedule_task_type": schedule_task_type,
+                "deadline": deadline,
+                "priority": priority,
+                "status": status,
+                "dimensions": dimensions,
+            },
         )
         self.log_event(user_id, "task_created", {"task_id": task_id, "title": title})
-        return self.get_task(task_id) or {}
+        return self.get_task(task_id, user_id=user_id) or {}
 
     def parse_tasks_from_text(self, user_id: str, text: str, chat_context: dict | None = None) -> list[dict]:
         clean = text.strip()
@@ -580,7 +742,11 @@ class Store:
                     "content": (
                         "你是 HumanOS 的任务解析 agent。只输出 JSON。"
                         "从用户中文输入中提取所有学习任务。"
-                        "如果一句话包含多个时间点或多个动作，必须拆成多个任务。不要输出解释。"
+                        "如果一句话包含多个时间点或多个动作，必须拆成多个任务。"
+                        "区分 flexible_task 和 fixed_event："
+                        "有固定会议、上课、明确开始时间且必须按时发生的是 fixed_event；"
+                        "只需要在截止日前完成、可由系统安排执行窗口的是 flexible_task。"
+                        "不要输出解释。"
                     ),
                 },
                 {
@@ -594,9 +760,15 @@ class Store:
                                 "tasks": [
                                     {
                                         "title": "任务标题，不要包含其他任务",
-                                        "due": "目标时间；如果用户说今天/明天/周几，需要保留相对日期和具体时间",
-                                        "duration": "预计分钟数，数字；没有说时默认 60",
+                                        "task_type": "flexible_task/fixed_event/recovery_task",
+                                        "deadline": "flexible_task 的截止日期或目标日期；如果用户说今天/明天/周几，需要保留相对日期",
+                                        "due": "兼容字段；fixed_event 写开始时间，flexible_task 写 deadline",
+                                        "estimated_duration": "预计分钟数，数字；没有说时默认 60",
+                                        "duration": "兼容字段，等同 estimated_duration",
                                         "priority": "高/中/低",
+                                        "cognitive_load": "high/medium/low",
+                                        "ambiguity": "high/medium/low",
+                                        "splittable": "true/false",
                                         "context": "只保留该任务相关背景",
                                     }
                                 ]
@@ -617,15 +789,31 @@ class Store:
             for item in raw_tasks[:8]:
                 if not isinstance(item, dict):
                     continue
+                explicit_duration = infer_duration_minutes(clean) if len(raw_tasks) == 1 else None
+                parsed_duration = safe_duration_minutes(
+                    item.get("estimated_duration") or item.get("duration"), explicit_duration or 60
+                )
+                if explicit_duration and parsed_duration == 60:
+                    parsed_duration = explicit_duration
                 payload = {
                     "title": item.get("title") or clean[:60],
-                    "due": item.get("due") or "未设置",
-                    "duration": safe_duration_minutes(item.get("duration"), 60),
+                    "task_type": item.get("task_type") or item.get("taskType"),
+                    "deadline": item.get("deadline") or item.get("due") or "未设置",
+                    "due": item.get("due") or item.get("deadline") or "未设置",
+                    "estimated_duration": parsed_duration,
+                    "duration": parsed_duration,
                     "priority": item.get("priority") if item.get("priority") in {"高", "中", "低"} else "中",
+                    "cognitive_load": item.get("cognitive_load") if item.get("cognitive_load") in {"high", "medium", "low"} else None,
+                    "ambiguity": item.get("ambiguity") if item.get("ambiguity") in {"high", "medium", "low"} else None,
                     "context": item.get("context") or clean,
                 }
+                payload = {key: value for key, value in payload.items() if value is not None}
                 payload["parser"] = "deepseek"
                 payloads.append(payload)
+            explicit_duration = infer_duration_minutes(clean)
+            if explicit_duration and len(payloads) == 1:
+                payloads[0]["estimated_duration"] = explicit_duration
+                payloads[0]["duration"] = explicit_duration
             if expected_count > 1 and len(payloads) < expected_count:
                 self.log_event(
                     user_id,
@@ -657,7 +845,7 @@ class Store:
         action_count = sum(
             1
             for part in action_segments
-            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论|取|拿|办|买|发)", part)
+            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发)", part)
         )
         serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", clean))
         return max(clock_count, action_count, serial_count, 1)
@@ -673,7 +861,7 @@ class Store:
         action_count = sum(
             1
             for part in parts
-            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论|取|拿|办|买|发)", part)
+            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发)", part)
         )
         followup_markers = re.search(r"第[一二三四五六七八九\d]+|这个|那个|都是|每个", text)
         return action_count >= 2 and not followup_markers
@@ -715,7 +903,10 @@ class Store:
                     user_id,
                     {
                         "title": title[:42],
+                        "task_type": "fixed_event",
+                        "deadline": f"{day} {format_clock_hour(start)}",
                         "due": f"{day} {format_clock_hour(start)}",
+                        "estimated_duration": duration,
                         "duration": duration,
                         "priority": "高" if any(word in title for word in ["重要", "紧急", "ddl", "deadline"]) else "中",
                         "context": clean_line,
@@ -735,9 +926,19 @@ class Store:
             for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;)", clean)
             if part.strip(" ，,。；;、")
         ]
-        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)[^，。；;]*)")
+        action_pattern = r"(会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)"
+        merged_segments: list[str] = []
+        for part in connector_segments:
+            has_action = re.search(action_pattern, part)
+            has_duration_only = infer_duration_minutes(part) and not has_action
+            if has_duration_only and merged_segments:
+                merged_segments[-1] = f"{merged_segments[-1]}，{part}"
+            else:
+                merged_segments.append(part)
+        connector_segments = merged_segments
+        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:{action_pattern})[^，。；;]*)")
         segments = [match.group(1).strip(" ，,。；;、") for match in segment_pattern.finditer(clean)]
-        if len(connector_segments) > len(segments):
+        if connector_segments and len(connector_segments) >= len(segments):
             segments = connector_segments
         if not segments:
             segments = [clean]
@@ -768,13 +969,18 @@ class Store:
                 any(word in segment for word in ["紧急", "重要", "ddl", "deadline", "优先级高", "高优先级"])
                 or re.search(r"优先级\s*[:：]?\s*高", segment)
             ) else "中"
-            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧)", "", segment)
+            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧|之前|以前|前)", "", segment)
+            title_text = re.sub(r"\d+\s*(个)?\s*(分钟|min|小时|h)", "", title_text, flags=re.I)
+            title_text = re.sub(r"(大概|大约|预计|左右)", "", title_text)
             title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
             task = self.create_task(
                 user_id,
                 {
                     "title": title_text[:42],
+                    "task_type": self.infer_schedule_task_type({"due": due, "context": segment}),
+                    "deadline": due,
                     "due": due,
+                    "estimated_duration": duration,
                     "duration": duration,
                     "priority": priority,
                     "context": segment,
@@ -859,6 +1065,32 @@ class Store:
         self.log_event(user_id, "behavior_language_features", {"text": clean, "features": llm_result})
         return llm_result
 
+    def chat_turn_confidence(self, response: dict, chat_context: dict) -> float:
+        confidence = 0.55
+        features = response.get("features") or {}
+        intent = response.get("intent") or features.get("intent")
+        tasks = response.get("tasks") or []
+        if intent and intent != "other":
+            confidence += 0.12
+        if tasks:
+            confidence += 0.14
+            missing_penalty = 0.0
+            for task in tasks:
+                due = str(task.get("deadline") or task.get("due") or "")
+                duration = int(task.get("estimated_duration") or task.get("duration") or 0)
+                if due in {"", "未设置"}:
+                    missing_penalty += 0.08
+                if duration <= 0:
+                    missing_penalty += 0.08
+            confidence -= min(missing_penalty, 0.18)
+        if chat_context.get("retrieved_memories"):
+            confidence += 0.06
+        if features.get("needs_follow_up"):
+            confidence -= 0.06
+        if response.get("intent") == "reschedule":
+            confidence += 0.04
+        return round(max(0.05, min(confidence, 0.95)), 2)
+
     def chat_turn(self, user_id: str, payload: dict) -> dict:
         text = payload.get("text", "").strip()
         if not text:
@@ -896,6 +1128,7 @@ class Store:
                 "学习",
                 "开会",
                 "会议",
+                "组会",
                 "取",
                 "拿",
                 "办",
@@ -925,6 +1158,9 @@ class Store:
             response["reply"] = "收到进展。你可以继续补充下一步，或让我根据当前状态重新安排。"
         elif intent == "interruption":
             response["reply"] = "收到中断情况。请补一句回来后第一步，我会把它作为恢复线索。"
+        response["confidence"] = self.chat_turn_confidence(response, chat_context)
+        features = {**features, "confidence": response["confidence"]}
+        response["features"] = features
         self.save_chat_turn(
             user_id=user_id,
             user_text=text,
@@ -1005,7 +1241,7 @@ class Store:
             ).fetchall()
         for row in rows:
             task_ids = from_json(row["task_ids_json"], [])
-            tasks = [self.get_task(task_id) for task_id in task_ids if task_id]
+            tasks = [self.get_task(task_id, user_id=user_id) for task_id in task_ids if task_id]
             tasks = [task for task in tasks if task and task.get("status") not in {"completed", "terminated"}]
             if tasks:
                 return tasks
@@ -1014,6 +1250,8 @@ class Store:
     def parse_time_followup_for_recent_tasks(self, user_id: str, text: str, chat_context: dict | None = None) -> list[dict]:
         recent_tasks = (chat_context or {}).get("recent_tasks") or self.latest_task_turn_tasks(user_id)
         if not recent_tasks:
+            return []
+        if self.looks_like_compact_multi_task_list(text):
             return []
         has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         if not has_time:
@@ -1107,18 +1345,25 @@ class Store:
             updated = self.patch_task(
                 task["id"],
                 {
+                    "task_type": "fixed_event",
+                    "deadline": f"{day} {format_clock_hour(start)}",
                     "due": f"{day} {format_clock_hour(start)}",
+                    "estimated_duration": duration,
                     "duration": duration,
                     "context": f"{task.get('context') or task.get('title')}；时间补充：{part}",
                 },
+                user_id=user_id,
             )
             updated["parser"] = "time_followup"
             updated_tasks.append(updated)
         return updated_tasks
 
-    def get_task(self, task_id: str) -> dict | None:
+    def get_task(self, task_id: str, user_id: str | None = None) -> dict | None:
         with self.connect() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if user_id:
+                row = conn.execute("SELECT * FROM tasks WHERE id=? AND user_id=?", (task_id, user_id)).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         return self.task_row(row) if row else None
 
     def list_tasks(self, user_id: str) -> list[dict]:
@@ -1188,17 +1433,40 @@ class Store:
         return context
 
     def task_row(self, row: sqlite3.Row) -> dict:
+        context_window = from_json(row["context_window_json"], {})
+        deadline = context_window.get("deadline") or row["due"]
+        estimated_duration = context_window.get("estimatedDuration") or row["duration"]
+        schedule_task_type = context_window.get("taskType") or self.infer_schedule_task_type(
+            {"due": row["due"], "context": row["context"]}
+        )
+        dimensions = context_window.get("dimensions")
+        if not isinstance(dimensions, dict):
+            dimensions = self.local_task_dimensions(
+                {
+                    "title": row["title"],
+                    "context": row["context"],
+                    "task_type": schedule_task_type,
+                    "deadline": deadline,
+                    "estimated_duration": estimated_duration,
+                    "cognitive_load": row["cognitive_load"],
+                    "ambiguity": row["ambiguity"],
+                }
+            )
         return {
             "id": row["id"],
             "user_id": row["user_id"],
             "title": row["title"],
             "type": row["type"],
+            "task_type": schedule_task_type,
             "due": row["due"],
+            "deadline": deadline,
             "duration": infer_duration_minutes(f"{row['title']} {row['context']}") or row["duration"],
+            "estimated_duration": estimated_duration,
             "priority": row["priority"],
             "status": row["status"],
             "context": row["context"],
-            "contextWindow": from_json(row["context_window_json"], {}),
+            "contextWindow": context_window,
+            "dimensions": dimensions,
             "cognitive_load": row["cognitive_load"],
             "ambiguity": row["ambiguity"],
             "switch_cost": row["switch_cost"],
@@ -1209,10 +1477,14 @@ class Store:
             "updated_at": row["updated_at"],
         }
 
-    def patch_task(self, task_id: str, patch: dict) -> dict:
-        current = self.get_task(task_id)
+    def patch_task(self, task_id: str, patch: dict, user_id: str | None = None) -> dict:
+        current = self.get_task(task_id, user_id=user_id)
         if not current:
             raise KeyError(task_id)
+        if "deadline" in patch and "due" not in patch:
+            patch["due"] = patch["deadline"]
+        if "estimated_duration" in patch and "duration" not in patch:
+            patch["duration"] = patch["estimated_duration"]
         allowed = {
             "title",
             "type",
@@ -1231,27 +1503,56 @@ class Store:
             updates["slot_json"] = as_json(patch["slot"])
         if "checkpoints" in patch:
             updates["checkpoints_json"] = as_json(patch["checkpoints"])
-        if "contextWindow" in patch:
-            updates["context_window_json"] = as_json(patch["contextWindow"])
-        if "context_window" in patch:
-            updates["context_window_json"] = as_json(patch["context_window"])
+        if "contextWindow" in patch or "context_window" in patch:
+            current_window = current.get("contextWindow") or {}
+            incoming_window = patch.get("contextWindow") or patch.get("context_window") or {}
+            if not isinstance(current_window, dict):
+                current_window = {}
+            if not isinstance(incoming_window, dict):
+                incoming_window = {}
+            updates["context_window_json"] = as_json({**current_window, **incoming_window})
+        if any(key in patch for key in ["deadline", "estimated_duration", "task_type", "taskType"]):
+            context_window = dict(
+                {
+                    **(current.get("contextWindow") or {}),
+                    **(patch.get("contextWindow") or patch.get("context_window") or {}),
+                }
+            )
+            if "deadline" in patch:
+                context_window["deadline"] = patch["deadline"]
+            if "estimated_duration" in patch:
+                context_window["estimatedDuration"] = patch["estimated_duration"]
+            if "task_type" in patch or "taskType" in patch:
+                context_window["taskType"] = patch.get("task_type") or patch.get("taskType")
+            updates["context_window_json"] = as_json(context_window)
         updates["updated_at"] = now_ms()
         assignments = ", ".join(f"{key}=?" for key in updates)
-        values = list(updates.values()) + [task_id]
+        values = list(updates.values())
         with self.connect() as conn:
-            conn.execute(f"UPDATE tasks SET {assignments} WHERE id=?", values)
+            if user_id:
+                values.extend([task_id, user_id])
+                conn.execute(f"UPDATE tasks SET {assignments} WHERE id=? AND user_id=?", values)
+            else:
+                values.append(task_id)
+                conn.execute(f"UPDATE tasks SET {assignments} WHERE id=?", values)
         self.log_event(current["user_id"], "task_updated", {"task_id": task_id, "patch": patch})
-        return self.get_task(task_id) or {}
+        return self.get_task(task_id, user_id=user_id) or {}
 
-    def delete_task(self, task_id: str) -> dict:
-        current = self.get_task(task_id)
+    def delete_task(self, task_id: str, user_id: str | None = None) -> dict:
+        current = self.get_task(task_id, user_id=user_id)
         if not current:
             raise KeyError(task_id)
         with self.connect() as conn:
-            conn.execute("DELETE FROM context_dumps WHERE task_id=?", (task_id,))
-            conn.execute("DELETE FROM memories WHERE task_id=? OR source_id=?", (task_id, task_id))
-            conn.execute("DELETE FROM events WHERE payload_json LIKE ?", (f"%{task_id}%",))
-            conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+            if user_id:
+                conn.execute("DELETE FROM context_dumps WHERE task_id=? AND user_id=?", (task_id, user_id))
+                conn.execute("DELETE FROM memories WHERE user_id=? AND (task_id=? OR source_id=?)", (user_id, task_id, task_id))
+                conn.execute("DELETE FROM events WHERE user_id=? AND payload_json LIKE ?", (user_id, f"%{task_id}%"))
+                conn.execute("DELETE FROM tasks WHERE id=? AND user_id=?", (task_id, user_id))
+            else:
+                conn.execute("DELETE FROM context_dumps WHERE task_id=?", (task_id,))
+                conn.execute("DELETE FROM memories WHERE task_id=? OR source_id=?", (task_id, task_id))
+                conn.execute("DELETE FROM events WHERE payload_json LIKE ?", (f"%{task_id}%",))
+                conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self.log_event(current["user_id"], "task_deleted", {"task_id": task_id, "title": current["title"]})
         return {"id": task_id, "deleted": True}
 
@@ -1340,7 +1641,7 @@ class Store:
             {"label": "未解决问题", "text": "；".join(dump["open_questions"]) or "暂无"},
             {"label": "下一步", "text": dump["next_action"] or "恢复时先重新确认下一步。"},
         ]
-        self.patch_task(task_id, {"status": "paused", "checkpoints": checkpoints})
+        self.patch_task(task_id, {"status": "paused", "checkpoints": checkpoints}, user_id=user_id)
         memory_text = (
             f"Context dump for task {task_id}. Progress: {dump['progress']}. "
             f"Open questions: {', '.join(dump['open_questions'])}. "
@@ -1435,7 +1736,15 @@ class Store:
         return decision
 
     def build_schedule_query(self, tasks: list[dict], state: dict) -> str:
-        task_text = "; ".join(f"{t.get('title')} {t.get('type')} {t.get('status')}" for t in tasks[:6])
+        task_text = "; ".join(
+            (
+                f"{t.get('title')} {t.get('task_type') or t.get('type')} "
+                f"deadline={t.get('deadline') or t.get('due')} "
+                f"duration={t.get('estimated_duration') or t.get('duration')} "
+                f"status={t.get('status')}"
+            )
+            for t in tasks[:8]
+        )
         return (
             f"Schedule tasks under focus {state.get('focus')} energy {state.get('energy')} "
             f"stress {state.get('stress')}. Tasks: {task_text}"
@@ -1500,7 +1809,7 @@ class Store:
 
     def reentry_prompt(self, user_id: str, payload: dict) -> dict:
         task_id = payload["task_id"]
-        task = self.get_task(task_id)
+        task = self.get_task(task_id, user_id=user_id)
         if not task:
             raise KeyError(task_id)
         state = payload.get("runtime_state") or payload.get("current_runtime_state") or self.latest_runtime_state(user_id)
@@ -1678,12 +1987,23 @@ class Handler(BaseHTTPRequestHandler):
 
             if path.startswith("/api/tasks/") and method == "PATCH":
                 task_id = path.split("/")[-1]
-                self.send_json({"task": store.patch_task(task_id, self.read_json())})
+                payload = self.read_json()
+                user_id = payload.get("user_id") or query.get("user_id", [""])[0]
+                if not user_id:
+                    self.send_json({"error": "user_id is required"}, status=400)
+                    return
+                store.ensure_profile(user_id)
+                self.send_json({"task": store.patch_task(task_id, payload, user_id=user_id)})
                 return
 
             if path.startswith("/api/tasks/") and method == "DELETE":
                 task_id = path.split("/")[-1]
-                self.send_json({"task": store.delete_task(task_id)})
+                user_id = query.get("user_id", [""])[0]
+                if not user_id:
+                    self.send_json({"error": "user_id is required"}, status=400)
+                    return
+                store.ensure_profile(user_id)
+                self.send_json({"task": store.delete_task(task_id, user_id=user_id)})
                 return
 
             if path == "/api/state-checkins" and method == "POST":

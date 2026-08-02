@@ -2165,6 +2165,13 @@ textarea:focus {
     rgba(0, 0, 0, .03);
 }
 
+.slot.drag-over {
+  background:
+    linear-gradient(90deg, rgba(74, 163, 255, .16), rgba(74, 163, 255, .055)),
+    rgba(0, 0, 0, .035);
+  box-shadow: inset 3px 0 0 rgba(120, 190, 255, .82);
+}
+
 .event {
   left: 16px;
   right: 16px;
@@ -2172,6 +2179,11 @@ textarea:focus {
   padding: 12px 14px;
   border-color: rgba(255, 255, 255, .24);
   box-shadow: 0 18px 34px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+
+.event.dragging {
+  opacity: .72;
+  transform: scale(.992);
 }
 
 .event h3 {

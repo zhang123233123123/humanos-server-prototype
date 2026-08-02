@@ -88,7 +88,11 @@ let currentProfile = {
 };
 let lastDecision = null;
 let editingTaskId = null;
-const HOUR_ROW_HEIGHT = 60;
+const deletingTaskIds = new Set();
+const HOUR_ROW_HEIGHT = 64;
+const CALENDAR_START_HOUR = 8;
+const CALENDAR_END_HOUR = 18;
+const DRAG_STEP_MINUTES = 15;
 
 const calendar = document.getElementById("calendar");
 const chatThread = document.getElementById("chatThread");
@@ -328,6 +332,17 @@ function addChatMessage(sender, title, text) {
   }
 }
 
+function formatConfidence(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  const normalized = numeric > 1 ? numeric / 100 : numeric;
+  return `解析把握：${Math.round(normalized * 100)}%`;
+}
+
+function chatConfidence(turn = {}) {
+  return turn.confidence ?? turn.features?.confidence;
+}
+
 function formatBackendTime(ms) {
   if (!ms) return "";
   return new Date(ms).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -336,9 +351,9 @@ function formatBackendTime(ms) {
 function chatMessagesFromTurns(turns = []) {
   return turns.flatMap((turn) => {
     const createdAt = formatBackendTime(turn.created_at);
-    const featureText = turn.features
-      ? `\n识别到：${turn.intent || turn.features.intent || "other"}${turn.features.blockers?.length ? `；可能卡点：${turn.features.blockers.join(" / ")}` : ""}`
-      : "";
+    const confidenceText = formatConfidence(chatConfidence(turn));
+    const blockerText = turn.features?.blockers?.length ? `\n可能卡点：${turn.features.blockers.join(" / ")}` : "";
+    const featureText = `${blockerText}${confidenceText ? `\n${confidenceText}` : ""}`;
     return [
       {
         sender: "user",
@@ -357,13 +372,18 @@ function chatMessagesFromTurns(turns = []) {
 }
 
 function missingTimeConfirmationFields(task) {
-  const due = task?.due || "";
+  const due = task?.deadline || task?.due || "";
   const missing = [];
-  const hasDate = /(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|\d{1,2}[/-]\d{1,2}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/.test(due);
-  const hasClock = /\d{1,2}[:：]\d{2}|(上午|下午|晚上|早上|中午)?\s*\d{1,2}\s*(点|时)/.test(due);
-  if (!hasDate) missing.push("哪一天");
-  if (!hasClock) missing.push("开始时间或截止时间");
-  if (!task?.duration || Number(task.duration) <= 0) missing.push("预计时长");
+  const type = taskScheduleType(task);
+  if (!task?.title) missing.push("任务标题");
+  if (type === "fixed_event") {
+    if (!hasDueDate(due)) missing.push("哪一天");
+    if (!hasDueClock(due)) missing.push("开始时间");
+  } else if (!hasDueDate(due)) {
+    missing.push("截止日期");
+  }
+  if (!task?.duration && !task?.estimated_duration) missing.push("预计时长");
+  if (Number(task?.duration || task?.estimated_duration || 0) <= 0) missing.push("预计时长");
   return missing;
 }
 
@@ -375,14 +395,24 @@ function localFallbackTasksFromText(text) {
     .split(/然后|最后|再|接着|之后|，|,|。|；|;/)
     .map((segment) => segment.replace(/^[，,。；;、\s]+|[，,。；;、\s]+$/g, ""))
     .filter(Boolean);
-  const pattern = new RegExp(`((?:${relativeDay})?\\s*(?:${timeWord})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)[^，。；;]*)`, "g");
+  const actionPattern = /会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发/;
+  const mergedConnectorSegments = [];
+  connectorSegments.forEach((segment) => {
+    const hasDurationOnly = inferDurationMinutesFromText(segment) && !actionPattern.test(segment);
+    if (hasDurationOnly && mergedConnectorSegments.length) {
+      mergedConnectorSegments[mergedConnectorSegments.length - 1] = `${mergedConnectorSegments[mergedConnectorSegments.length - 1]}，${segment}`;
+    } else {
+      mergedConnectorSegments.push(segment);
+    }
+  });
+  const pattern = new RegExp(`((?:${relativeDay})?\\s*(?:${timeWord})?[^，。；;、]*(?:会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发)[^，。；;]*)`, "g");
   let segments = [];
   let match;
   while ((match = pattern.exec(clean))) {
     const segment = match[1].replace(/^[，,。；;、\s]+|[，,。；;、\s]+$/g, "");
     if (segment) segments.push(segment);
   }
-  if (connectorSegments.length > segments.length) segments = connectorSegments;
+  if (mergedConnectorSegments.length && mergedConnectorSegments.length >= segments.length) segments = mergedConnectorSegments;
   const sourceSegments = segments.length ? segments : [clean];
   let lastDay = "";
   let lastPeriod = "";
@@ -405,7 +435,9 @@ function localFallbackTasksFromText(text) {
     const title = segment
       .replace(new RegExp(relativeDay, "g"), "")
       .replace(new RegExp(timeWord, "g"), "")
-      .replace(/然后|最后|先|需要|进行|我们的|我们|这个|的|吧/g, "")
+      .replace(/然后|最后|先|需要|进行|我们的|我们|这个|的|吧|之前|以前|前/g, "")
+      .replace(/\d+\s*(个)?\s*(分钟|min|小时|h)/gi, "")
+      .replace(/大概|大约|预计|左右/g, "")
       .replace(/\s+/g, "")
       .replace(/^[，,。；;、]+|[，,。；;、]+$/g, "")
       || segment;
@@ -413,7 +445,10 @@ function localFallbackTasksFromText(text) {
       id: `task-${Date.now()}-${index}`,
       title: title.slice(0, 42),
       due,
+      deadline: due,
       duration: inferDurationMinutesFromText(segment) || 60,
+      estimated_duration: inferDurationMinutesFromText(segment) || 60,
+      task_type: hasDueClock(due) ? "fixed_event" : "flexible_task",
       priority: /紧急|重要|ddl|deadline|优先级高|高优先级/.test(segment) ? "高" : "中",
       status: "queued",
       context: segment,
@@ -442,6 +477,29 @@ function parseDueStartHour(due = "") {
   return hour;
 }
 
+function hasDueDate(due = "") {
+  return /(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|\d{1,2}[/-]\d{1,2}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/.test(String(due || ""));
+}
+
+function hasDueClock(due = "") {
+  return /\d{1,2}[:：]\d{2}|(上午|下午|晚上|早上|中午)?\s*\d{1,2}\s*(点|时)/.test(String(due || ""));
+}
+
+function taskScheduleType(task = {}) {
+  const explicit = task.task_type || task.taskType || task.contextWindow?.taskType || task.contextWindow?.task_type;
+  if (explicit) return explicit;
+  if (hasDueClock(task.due)) return "fixed_event";
+  return "flexible_task";
+}
+
+function inferDialogTaskType(title = "", context = "", due = "", previous = {}) {
+  const existing = previous.task_type || previous.contextWindow?.taskType;
+  const text = `${title} ${context} ${due}`;
+  const fixedWords = /(会议|开会|组会|上课|面试|meeting|appointment)/i.test(text);
+  if (hasDueClock(due) && (fixedWords || existing === "fixed_event")) return "fixed_event";
+  return "flexible_task";
+}
+
 function dayIndexFromDue(due = "") {
   const text = String(due);
   const map = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
@@ -457,7 +515,7 @@ function normalizedSlotForDue(task) {
   const slot = task?.slot;
   if (!slot) return null;
   const durationHours = taskDurationHours(task);
-  const dueStart = parseDueStartHour(task.due);
+  const dueStart = taskScheduleType(task) === "fixed_event" ? parseDueStartHour(task.due) : null;
   if (dueStart !== null && Math.abs(Number(slot.start) - dueStart) > 0.01) {
     return {
       ...slot,
@@ -561,11 +619,11 @@ function setBackendStatus(text, online = backendOnline) {
 
 function inferDurationMinutesFromText(text = "") {
   const clean = String(text);
-  const match = clean.match(/(\d+)\s*(个)?\s*(分钟|min|小时|h)/i);
+  const match = clean.match(/(\d+)\s*(?:个\s*)?(分钟|min|小时|h)/i);
   if (!match) return null;
   const amount = Number(match[1]);
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return ["小时", "h"].includes(match[3].toLowerCase()) ? amount * 60 : amount;
+  return ["小时", "h"].includes(match[2].toLowerCase()) ? amount * 60 : amount;
 }
 
 function normalizeDuration(task) {
@@ -579,8 +637,10 @@ function normalizeBackendTask(task) {
   const normalized = {
     id: task.id,
     title: task.title,
-    due: task.due || "未设置",
+    due: task.due || task.deadline || "未设置",
+    deadline: task.deadline || task.due || "未设置",
     duration: normalizeDuration(task),
+    estimated_duration: task.estimated_duration || task.duration || 60,
     priority: task.priority || "中",
     status: task.status || "queued",
     context: task.context || "",
@@ -588,6 +648,7 @@ function normalizeBackendTask(task) {
     checkpoints,
     contextWindow: normalizeContextWindow({ ...task, checkpoints }),
     type: task.type,
+    task_type: task.task_type || task.taskType || task.contextWindow?.taskType || task.context_window?.taskType,
     cognitive_load: task.cognitive_load,
     ambiguity: task.ambiguity,
     switch_cost: task.switch_cost,
@@ -872,29 +933,51 @@ async function saveRuntimeStateToBackend() {
 
 async function patchBackendTask(task) {
   if (!backendOnline) return;
-  await api(`/api/tasks/${task.id}`, {
+  await api(`/api/tasks/${task.id}?user_id=${encodeURIComponent(currentUserId())}`, {
     method: "PATCH",
-    body: JSON.stringify(task)
+    body: JSON.stringify({ ...task, user_id: currentUserId() })
   });
 }
 
 async function deleteBackendTask(taskId) {
   if (!backendOnline) return;
-  await api(`/api/tasks/${taskId}`, { method: "DELETE" });
+  await api(`/api/tasks/${taskId}?user_id=${encodeURIComponent(currentUserId())}`, { method: "DELETE" });
+}
+
+function normalizePendingSchedulePlan(plan) {
+  if (!plan) return null;
+  if (!Array.isArray(plan.plan_patch) && Array.isArray(plan.plan)) {
+    plan.plan_patch = plan.plan;
+  }
+  if (!Array.isArray(plan.plan_patch)) plan.plan_patch = [];
+  return plan;
+}
+
+function pendingPlanBlocks(plan = pendingSchedulePlan) {
+  return normalizePendingSchedulePlan(plan)?.plan_patch || [];
 }
 
 async function deleteTaskById(taskId, closeDialog = false) {
   if (!taskId) return;
+  if (deletingTaskIds.has(taskId)) return;
+  deletingTaskIds.add(taskId);
   const task = tasks.find((item) => item.id === taskId);
   const title = task?.title || "任务";
   const previousTasks = [...tasks];
+  normalizePendingSchedulePlan(pendingSchedulePlan);
   const previousPendingPlan = pendingSchedulePlan ? {
     ...pendingSchedulePlan,
-    plan_patch: [...(pendingSchedulePlan.plan_patch || [])]
+    plan_patch: [...pendingPlanBlocks()],
+    violations: [...(pendingSchedulePlan.violations || [])]
   } : null;
   tasks = tasks.filter((item) => item.id !== taskId);
-  if (pendingSchedulePlan?.plan_patch?.length) {
-    pendingSchedulePlan.plan_patch = pendingSchedulePlan.plan_patch.filter((block) => block.task_id !== taskId);
+  if (pendingPlanBlocks().length) {
+    pendingSchedulePlan.plan_patch = pendingPlanBlocks().filter((block) => block.task_id !== taskId);
+    pendingSchedulePlan.violations = (pendingSchedulePlan.violations || []).filter((violation) => {
+      if (violation.task_id === taskId) return false;
+      if ((violation.task_ids || []).includes(taskId)) return false;
+      return true;
+    });
     if (!pendingSchedulePlan.plan_patch.length) pendingSchedulePlan = null;
   }
   try {
@@ -910,6 +993,8 @@ async function deleteTaskById(taskId, closeDialog = false) {
     pendingSchedulePlan = previousPendingPlan;
     addChatMessage("ai", "删除失败", `${title} 暂时没有删除成功，请稍后再试。`);
     console.error(error);
+  } finally {
+    deletingTaskIds.delete(taskId);
   }
   render();
 }
@@ -941,7 +1026,7 @@ function colorForTask(task, index = 0) {
 }
 
 function taskCalendarBlock(task, index = 0) {
-  const explicitStart = parseDueStartHour(task.due);
+  const explicitStart = taskScheduleType(task) === "fixed_event" ? parseDueStartHour(task.due) : null;
   const start = task.slot?.start ?? explicitStart;
   if (start === null || start === undefined) return null;
   const end = task.slot?.end ?? (start + taskDurationHours(task));
@@ -956,11 +1041,11 @@ function taskCalendarBlock(task, index = 0) {
 }
 
 function visibleCalendarBlocks() {
-  const pendingIds = new Set((pendingSchedulePlan?.plan_patch || []).map((block) => block.task_id));
+  const pendingIds = new Set(pendingPlanBlocks().map((block) => block.task_id));
   const taskBlocks = tasks
     .map((task, index) => taskCalendarBlock(task, index))
     .filter((block) => block && !pendingIds.has(block.task_id));
-  const pendingBlocks = (pendingSchedulePlan?.plan_patch || [])
+  const pendingBlocks = pendingPlanBlocks()
     .map((block) => {
       const task = tasks.find((item) => item.id === block.task_id);
       if (!task) return null;
@@ -985,6 +1070,30 @@ function overlapLayout(blocks) {
   });
 }
 
+function roundHourToStep(hour, stepMinutes = DRAG_STEP_MINUTES) {
+  const step = stepMinutes / 60;
+  return Math.round(Number(hour) / step) * step;
+}
+
+function clampTaskStart(task, startHour) {
+  const duration = taskDurationHours(task);
+  const minStart = CALENDAR_START_HOUR;
+  const maxStart = Math.max(CALENDAR_START_HOUR, CALENDAR_END_HOUR - duration);
+  return Math.min(Math.max(roundHourToStep(startHour), minStart), maxStart);
+}
+
+function dropHourFromEvent(event, slot) {
+  const rect = slot.getBoundingClientRect();
+  const baseHour = Number(slot.dataset.hour);
+  const offset = Math.min(Math.max(event.clientY - rect.top, 0), Math.max(rect.height, 1));
+  const fraction = offset / Math.max(rect.height, 1);
+  return roundHourToStep(baseHour + fraction);
+}
+
+function pendingBlockForTask(taskId) {
+  return pendingPlanBlocks().find((block) => block.task_id === taskId) || null;
+}
+
 function taskStatusClass(task, block) {
   const now = currentHourFloat();
   const classes = [];
@@ -1001,13 +1110,30 @@ function taskStatusClass(task, block) {
 async function moveTaskToHour(taskId, startHour) {
   const task = tasks.find((item) => item.id === taskId);
   if (!task) return;
-  const start = Number(startHour);
+  const start = clampTaskStart(task, startHour);
+  const pendingBlock = pendingBlockForTask(taskId);
+  if (pendingBlock) {
+    pendingBlock.start = start;
+    pendingBlock.end = start + taskDurationHours(task);
+    pendingBlock.color = pendingBlock.color || colorForTask(task);
+    selectTask(task.id, "manual");
+    addChatMessage(
+      "ai",
+      "待确认安排已调整",
+      `${task.title} 的建议时间已移动到 ${formatHour(pendingBlock.start)}-${formatHour(pendingBlock.end)}。确认后才会写入日历。`
+    );
+    render();
+    return;
+  }
   task.slot = {
     start,
     end: start + taskDurationHours(task),
     color: colorForTask(task)
   };
-  task.due = dueWithStartHour(task.due, start);
+  if (taskScheduleType(task) === "fixed_event") {
+    task.due = dueWithStartHour(task.due, start);
+    task.deadline = task.due;
+  }
   if (task.status === "queued") task.status = "scheduled";
   selectTask(task.id, "manual");
   await patchBackendTask(task);
@@ -1032,7 +1158,7 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
   const sourceTasks = Array.isArray(targetTasks) && targetTasks.length ? targetTasks : tasks;
   const schedulableTasks = sourceTasks.filter((task) => missingTimeConfirmationFields(task).length === 0);
   if (!schedulableTasks.length) {
-    addChatMessage("ai", "需要确认时间", "生成日历安排前，我需要知道：哪一天、几点、预计多久。");
+    addChatMessage("ai", "需要确认条件", "生成安排前，我至少需要知道：任务标题、截止日期、预计时长。只有固定会议或固定事件才需要具体开始时间。");
     return;
   }
   if (backendOnline) {
@@ -1045,9 +1171,10 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
         tasks: schedulableTasks
       })
     });
-    pendingSchedulePlan = response.decision;
+    pendingSchedulePlan = normalizePendingSchedulePlan(response.decision);
     pendingSchedulePlan.plan_patch = (pendingSchedulePlan.plan_patch || []).map((block) => {
       const task = tasks.find((item) => item.id === block.task_id);
+      if (taskScheduleType(task) !== "fixed_event") return block;
       const explicitStart = parseDueStartHour(task?.due);
       if (explicitStart === null) return block;
       return {
@@ -1060,8 +1187,10 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
     const task = selectedTask() && missingTimeConfirmationFields(selectedTask()).length === 0
       ? selectedTask()
       : schedulableTasks[0];
-    const slotStart = parseDueStartHour(task.due) ?? (task.priority === "高" ? 9 : task.priority === "中" ? 14 : 16);
-    pendingSchedulePlan = {
+    const slotStart = taskScheduleType(task) === "fixed_event"
+      ? (parseDueStartHour(task.due) ?? 9)
+      : (task.priority === "高" ? 9 : task.priority === "中" ? 14 : 16);
+    pendingSchedulePlan = normalizePendingSchedulePlan({
       action: "suggest_plan",
       plan_patch: [{
         task_id: task.id,
@@ -1071,7 +1200,7 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
       }],
       explanation: reason,
       requires_confirmation: true
-    };
+    });
   }
   lastDecision = pendingSchedulePlan;
   addChatMessage("ai", "请确认安排", "我已经在右侧生成待确认安排。确认后才会加入日历。");
@@ -1097,7 +1226,8 @@ async function handleChatTurn(text) {
     } else {
       turn = {
         reply: "我会先把这句话拆成任务处理，并生成待确认安排。",
-        features: { intent: "add_task", blockers: [] },
+        confidence: 0.58,
+        features: { intent: "add_task", blockers: [], confidence: 0.58 },
         tasks: localFallbackTasksFromText(clean)
       };
     }
@@ -1115,9 +1245,9 @@ async function handleChatTurn(text) {
       activeId = defaultActiveTaskId();
     }
     chatInput.value = "";
-    const featureText = turn.features
-      ? `\n识别到：${turn.features.intent || "other"}${turn.features.blockers?.length ? `；可能卡点：${turn.features.blockers.join(" / ")}` : ""}`
-      : "";
+    const confidenceText = formatConfidence(chatConfidence(turn));
+    const blockerText = turn.features?.blockers?.length ? `\n可能卡点：${turn.features.blockers.join(" / ")}` : "";
+    const featureText = `${blockerText}${confidenceText ? `\n${confidenceText}` : ""}`;
     addChatMessage("ai", "HumanOS", `${turn.reply}${featureText}`);
     if (createdTasks.length) {
       const incompleteTasks = createdTasks
@@ -1242,7 +1372,7 @@ function renderChat() {
   const decisionMessages = lastDecision ? [{
     sender: "ai",
     title: "个性化建议",
-    text: `${lastDecision.explanation}${lastDecision.first_action ? `\n第一步：${lastDecision.first_action}` : ""}${lastDecision.risk ? `\n注意：${lastDecision.risk}` : ""}`
+    text: `${lastDecision.explanation}${formatConfidence(lastDecision.confidence) ? `\n${formatConfidence(lastDecision.confidence)}` : ""}${lastDecision.first_action ? `\n第一步：${lastDecision.first_action}` : ""}${lastDecision.risk ? `\n注意：${lastDecision.risk}` : ""}`
   }] : [];
   chatThread.innerHTML = [...systemMessages, ...decisionMessages, ...chatMessages].map((message) => `
     <div class="message ${message.sender}">
@@ -1258,7 +1388,7 @@ function renderCalendar() {
     renderWeekCalendar();
     return;
   }
-  const hours = Array.from({ length: 10 }, (_, index) => 8 + index);
+  const hours = Array.from({ length: CALENDAR_END_HOUR - CALENDAR_START_HOUR }, (_, index) => CALENDAR_START_HOUR + index);
   const blocks = overlapLayout(todayCalendarBlocks());
 
   calendar.innerHTML = `
@@ -1271,11 +1401,19 @@ function renderCalendar() {
   `;
 
   calendar.querySelectorAll(".slot").forEach((slot) => {
-    slot.addEventListener("dragover", (event) => event.preventDefault());
+    slot.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      slot.classList.add("drag-over");
+    });
+    slot.addEventListener("dragleave", () => {
+      slot.classList.remove("drag-over");
+    });
     slot.addEventListener("drop", (event) => {
       event.preventDefault();
+      slot.classList.remove("drag-over");
       const taskId = event.dataTransfer.getData("text/task-id");
-      if (taskId) moveTaskToHour(taskId, Number(slot.dataset.hour));
+      if (taskId) moveTaskToHour(taskId, dropHourFromEvent(event, slot));
     });
   });
 
@@ -1305,6 +1443,11 @@ function renderCalendar() {
     event.addEventListener("dragstart", (dragEvent) => {
       dragEvent.dataTransfer.setData("text/task-id", task.id);
       dragEvent.dataTransfer.effectAllowed = "move";
+      event.classList.add("dragging");
+    });
+    event.addEventListener("dragend", () => {
+      event.classList.remove("dragging");
+      calendar.querySelectorAll(".slot.drag-over").forEach((slot) => slot.classList.remove("drag-over"));
     });
     event.querySelector(".event-delete")?.addEventListener("click", (deleteEvent) => {
       deleteEvent.stopPropagation();
@@ -1573,17 +1716,36 @@ function render() {
 }
 
 function renderPendingSchedule() {
-  if (!pendingSchedulePlan?.plan_patch?.length) {
+  if (!pendingPlanBlocks().length) {
     pendingSchedule.classList.add("hidden");
     pendingScheduleText.textContent = "";
     return;
   }
-  const lines = pendingSchedulePlan.plan_patch.map((block) => {
+  const lines = pendingPlanBlocks().map((block) => {
     const task = tasks.find((item) => item.id === block.task_id);
     return `${task?.title || "任务"}：${formatHour(block.start)}-${formatHour(block.end)}`;
   });
+  const violationLines = (pendingSchedulePlan.violations || [])
+    .map((violation) => {
+      if (violation.type === "fixed_event_conflict") {
+        const names = (violation.task_ids || [])
+          .map((id) => tasks.find((item) => item.id === id)?.title)
+          .filter(Boolean)
+          .join(" 与 ");
+        return names ? `固定事件冲突：${names} 在 ${formatHour(violation.start)}-${formatHour(violation.end)} 重叠` : "";
+      }
+      const task = tasks.find((item) => item.id === violation.task_id);
+      const title = task?.title || "任务";
+      if (violation.type === "outside_available_window") return `${title} 超出你填写的可用时间`;
+      if (violation.type === "high_load_in_low_energy_window") return `${title} 可能落在低能量时段`;
+      if (violation.type === "low_task_clarity") return `${title} 的目标还需要再明确`;
+      if (violation.type === "missing_deadline") return `${title} 还缺截止日期`;
+      if (violation.type === "missing_duration") return `${title} 还缺预计时长`;
+      return "";
+    })
+    .filter(Boolean);
   pendingSchedule.classList.remove("hidden");
-  pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || "已生成建议安排。"} ${lines.join("；")}`;
+  pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || "已生成建议安排。"} ${violationLines.join("；")} ${lines.join("；")}`;
 }
 
 function createCheckpointFromFeedback(text) {
@@ -1623,17 +1785,22 @@ function taskPayloadFromDialog(id, previous = {}) {
   const title = document.getElementById("newTitle").value.trim() || "未命名任务";
   const duration = inferDurationMinutesFromText(`${title} ${initialContext}`) || Number(document.getElementById("newDuration").value) || 60;
   const slotStart = parseDueStartHour(due);
-  const shouldRefreshSlot = previous.slot && slotStart !== null;
+  const inferredTaskType = inferDialogTaskType(title, initialContext, due, previous);
+  const shouldRefreshSlot = inferredTaskType === "fixed_event" && previous.slot && slotStart !== null;
   return {
     ...previous,
     id,
     title,
     due,
+    deadline: due,
     duration,
+    estimated_duration: duration,
+    task_type: inferredTaskType,
     priority: document.getElementById("newPriority").value,
     status: document.getElementById("newStatus").value,
     context: initialContext,
     contextWindow: {
+      ...(previous.contextWindow || {}),
       progress: progress || initialContext,
       nextStep: nextStep || "回来后先确认任务目标，再选择一个 15-30 分钟内可完成的小步骤。",
       openQuestions: openQuestions || "暂无明确开放问题。",
@@ -1662,13 +1829,16 @@ document.getElementById("autoScheduleBtn").addEventListener("click", async () =>
 });
 
 confirmScheduleBtn.addEventListener("click", async () => {
-  if (!pendingSchedulePlan?.plan_patch?.length) return;
-  for (const block of pendingSchedulePlan.plan_patch) {
+  if (!pendingPlanBlocks().length) return;
+  for (const block of pendingPlanBlocks()) {
     const target = tasks.find((item) => item.id === block.task_id);
     if (target) {
       target.status = target.status === "paused" ? "paused" : "scheduled";
       target.slot = { start: block.start, end: block.end, color: block.color || "blue" };
-      target.due = dueWithStartHour(target.due, block.start);
+      if (taskScheduleType(target) === "fixed_event") {
+        target.due = dueWithStartHour(target.due, block.start);
+        target.deadline = target.due;
+      }
       await patchBackendTask(target);
     }
   }
