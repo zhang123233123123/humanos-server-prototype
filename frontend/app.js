@@ -726,6 +726,17 @@ function selectedTask() {
   return tasks.find((task) => task.id === activeId) || tasks[0];
 }
 
+function planBlockScore(block) {
+  const task = tasks.find((item) => item.id === block.task_id);
+  const dayDistance = dayDistanceFromToday(dayIndexFromDue(task?.due));
+  return dayDistance * 24 + Number(block.start || 0);
+}
+
+function firstPendingTaskId(plan = pendingSchedulePlan) {
+  const blocks = [...pendingPlanBlocks(plan)].sort((a, b) => planBlockScore(a) - planBlockScore(b));
+  return blocks.find((block) => tasks.some((task) => task.id === block.task_id))?.task_id || null;
+}
+
 function schedulingNodeForTask(task) {
   if (!task) {
     return {
@@ -2124,6 +2135,11 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
     });
   }
   lastDecision = pendingSchedulePlan;
+  const pendingTaskId = firstPendingTaskId();
+  if (pendingTaskId) {
+    activeSelectionMode = "auto";
+    activeId = pendingTaskId;
+  }
   addChatMessage("ai", t("confirmPlanTitle"), t("confirmPlanBody"));
 }
 
@@ -2163,7 +2179,7 @@ async function handleChatTurn(text) {
     });
     if (createdTasks.length) {
       activeSelectionMode = "auto";
-      activeId = defaultActiveTaskId();
+      activeId = createdTasks[0].id;
     }
     chatInput.value = "";
     const confidenceText = formatConfidence(chatConfidence(turn));
