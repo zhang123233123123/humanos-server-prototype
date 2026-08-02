@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HumanOS Task Resumption Prototype</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=20260802-debug">
+  <link rel="stylesheet" href="styles.css?v=20260802-debug-time">
 </head>
 <body>
   <section class="auth-screen" id="authScreen">
@@ -135,6 +135,13 @@
         <p>AI 学习计划 · 中断恢复 · 个性化安排</p>
       </div>
       <div class="top-actions">
+        <div class="debug-time-control" aria-label="Debug 时间控制">
+          <span class="debug-time-badge" id="debugTimeBadge">真实时间</span>
+          <input id="debugTimeInput" type="datetime-local" aria-label="模拟当前时间">
+          <button class="ghost compact" id="debugApplyTimeBtn" type="button">应用时间</button>
+          <button class="ghost compact" id="debugStepTimeBtn" type="button">+15m</button>
+          <button class="ghost compact" id="debugResetTimeBtn" type="button">真实时间</button>
+        </div>
         <span class="status-pill" id="userBadge">未登录</span>
         <button class="ghost" id="workspaceNavBtn" type="button">工作台</button>
         <button class="ghost" id="profileHomeBtn" type="button">个人主页</button>
@@ -439,6 +446,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260802-debug"></script>
+  <script src="app.js?v=20260802-debug-time"></script>
 </body>
 </html>

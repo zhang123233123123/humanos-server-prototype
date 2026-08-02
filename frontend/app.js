@@ -72,6 +72,7 @@ const API_PROTOCOL = window.location.protocol === "https:" ? "https:" : "http:";
 const API_BASE = window.HUMANOS_API_BASE || `${API_PROTOCOL}//${API_HOST}:8787`;
 const CHAT_CONTEXT_TURN_LIMIT = 50;
 const CHAT_MESSAGE_DISPLAY_LIMIT = CHAT_CONTEXT_TURN_LIMIT * 2;
+const DEBUG_NOW_KEY = "humanosDebugNowMs";
 let currentUser = JSON.parse(localStorage.getItem("humanosUser") || "null");
 let authMode = "login";
 let backendOnline = false;
@@ -79,6 +80,7 @@ let authPending = false;
 let calendarView = "day";
 let chatMessages = [];
 let pendingSchedulePlan = null;
+let debugNowMs = Number(localStorage.getItem(DEBUG_NOW_KEY)) || null;
 const promptedSlots = new Set(JSON.parse(localStorage.getItem("humanosPromptedSlots") || "[]"));
 let currentProfile = {
   role: "研究型学生",
@@ -127,6 +129,11 @@ const authSubmitBtn = document.getElementById("authSubmitBtn");
 const loginModeBtn = document.getElementById("loginModeBtn");
 const registerModeBtn = document.getElementById("registerModeBtn");
 const userBadge = document.getElementById("userBadge");
+const debugTimeBadge = document.getElementById("debugTimeBadge");
+const debugTimeInput = document.getElementById("debugTimeInput");
+const debugApplyTimeBtn = document.getElementById("debugApplyTimeBtn");
+const debugStepTimeBtn = document.getElementById("debugStepTimeBtn");
+const debugResetTimeBtn = document.getElementById("debugResetTimeBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const workspaceNavBtn = document.getElementById("workspaceNavBtn");
 const profileHomeBtn = document.getElementById("profileHomeBtn");
@@ -255,13 +262,69 @@ function currentUserId() {
   return currentUser?.id || null;
 }
 
+function getNow() {
+  return debugNowMs ? new Date(debugNowMs) : new Date();
+}
+
+function isDebugTimeEnabled() {
+  return Boolean(debugNowMs);
+}
+
+function formatDateTimeLocal(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatDebugBadgeTime(date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short"
+  }).format(date);
+}
+
+function syncDebugTimeControl() {
+  if (!debugTimeInput || !debugTimeBadge) return;
+  const now = getNow();
+  debugTimeInput.value = formatDateTimeLocal(now);
+  debugTimeBadge.textContent = isDebugTimeEnabled()
+    ? `模拟：${formatDebugBadgeTime(now)}`
+    : "真实时间";
+  debugTimeBadge.classList.toggle("active", isDebugTimeEnabled());
+}
+
+function applyDebugNow(ms, announce = true) {
+  if (!Number.isFinite(ms)) return;
+  debugNowMs = ms;
+  localStorage.setItem(DEBUG_NOW_KEY, String(debugNowMs));
+  syncDebugTimeControl();
+  if (announce) {
+    addChatMessage("ai", "Debug 时间已切换", `当前模拟时间：${todayLabel()} ${formatHour(currentHourFloat())}。`);
+  }
+  activeSelectionMode = "auto";
+  checkTaskTimePrompts(false);
+  render();
+}
+
+function resetDebugNow(announce = true) {
+  debugNowMs = null;
+  localStorage.removeItem(DEBUG_NOW_KEY);
+  syncDebugTimeControl();
+  if (announce) addChatMessage("ai", "Debug 时间已关闭", "已回到真实当前时间。");
+  activeSelectionMode = "auto";
+  checkTaskTimePrompts(false);
+  render();
+}
+
 function todayLabel() {
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "long"
-  }).format(new Date());
+  }).format(getNow());
 }
 
 function showAuth() {
@@ -325,7 +388,7 @@ function addChatMessage(sender, title, text) {
     sender,
     title,
     text,
-    createdAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    createdAt: getNow().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
   });
   if (chatMessages.length > CHAT_MESSAGE_DISPLAY_LIMIT) {
     chatMessages = chatMessages.slice(-CHAT_MESSAGE_DISPLAY_LIMIT);
@@ -505,9 +568,16 @@ function dayIndexFromDue(due = "") {
   const map = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
   const weekMatch = text.match(/(?:周|星期)([一二三四五六日天])/);
   if (weekMatch) return map[weekMatch[1]];
-  if (/今天|今晚/.test(text)) return (new Date().getDay() + 6) % 7;
-  if (/明天/.test(text)) return new Date(Date.now() + 86400000).getDay() === 0 ? 6 : new Date(Date.now() + 86400000).getDay() - 1;
-  if (/后天/.test(text)) return new Date(Date.now() + 2 * 86400000).getDay() === 0 ? 6 : new Date(Date.now() + 2 * 86400000).getDay() - 1;
+  const base = getNow();
+  if (/今天|今晚/.test(text)) return (base.getDay() + 6) % 7;
+  if (/明天/.test(text)) {
+    const tomorrow = new Date(base.getTime() + 86400000);
+    return tomorrow.getDay() === 0 ? 6 : tomorrow.getDay() - 1;
+  }
+  if (/后天/.test(text)) {
+    const afterTomorrow = new Date(base.getTime() + 2 * 86400000);
+    return afterTomorrow.getDay() === 0 ? 6 : afterTomorrow.getDay() - 1;
+  }
   return null;
 }
 
@@ -1278,7 +1348,7 @@ async function handleChatTurn(text) {
 }
 
 function currentHourFloat() {
-  const now = new Date();
+  const now = getNow();
   return now.getHours() + now.getMinutes() / 60;
 }
 
@@ -1699,6 +1769,7 @@ function renderReasoning() {
 
 function render() {
   ensureActiveTask();
+  syncDebugTimeControl();
   todayBadge.textContent = `今天：${todayLabel()}`;
   dayViewBtn.classList.toggle("active", calendarView === "day");
   weekViewBtn.classList.toggle("active", calendarView === "week");
@@ -1816,6 +1887,32 @@ function taskPayloadFromDialog(id, previous = {}) {
 
 [focusInput, energyInput, stressInput].forEach((input) => {
   input.addEventListener("input", render);
+});
+
+debugApplyTimeBtn.addEventListener("click", () => {
+  const value = debugTimeInput.value;
+  const next = value ? new Date(value).getTime() : NaN;
+  if (!Number.isFinite(next)) {
+    addChatMessage("ai", "Debug 时间无效", "请选择一个完整的日期和时间。");
+    render();
+    return;
+  }
+  applyDebugNow(next);
+});
+
+debugStepTimeBtn.addEventListener("click", () => {
+  applyDebugNow(getNow().getTime() + 15 * 60 * 1000);
+});
+
+debugResetTimeBtn.addEventListener("click", () => {
+  resetDebugNow();
+});
+
+debugTimeInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    debugApplyTimeBtn.click();
+  }
 });
 
 document.getElementById("autoScheduleBtn").addEventListener("click", async () => {
@@ -1987,7 +2084,9 @@ setAuthMode("login");
 render();
 loadBackendState();
 setInterval(() => {
+  if (!isDebugTimeEnabled()) syncDebugTimeControl();
   if (currentUser && !appRoot.classList.contains("hidden")) {
     checkTaskTimePrompts(false);
+    render();
   }
 }, 60000);

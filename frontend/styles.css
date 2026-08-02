@@ -2906,3 +2906,58 @@ body::after {
     transition-duration: .001ms !important;
   }
 }
+
+.debug-time-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .045);
+  box-shadow: var(--inner);
+}
+
+.debug-time-badge {
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: rgba(218, 229, 244, .62);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-time-badge.active {
+  border-color: rgba(245, 158, 11, .42);
+  background: rgba(245, 158, 11, .12);
+  color: #f6c56d;
+}
+
+.debug-time-control input {
+  width: 170px;
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, .11);
+  border-radius: 10px;
+  padding: 0 8px;
+  background: rgba(5, 7, 11, .35);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.debug-time-control .compact {
+  min-height: 34px;
+  padding: 0 9px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 1200px) {
+  .debug-time-control {
+    order: 10;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+}
