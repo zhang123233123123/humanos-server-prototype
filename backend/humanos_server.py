@@ -30,6 +30,23 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 CHAT_CONTEXT_TURN_LIMIT = 50
 
 
+def load_env_file(path: Path = ROOT / ".env") -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -150,6 +167,13 @@ def parse_clock_hour(value: str, inherited_period: str = "") -> float | None:
     if period == "中午" and hour < 11:
         hour += 12
     return hour + minute / 60
+
+
+def normalize_calendar_hour(hour: float, duration_minutes: int = 60) -> float:
+    duration = max(duration_minutes, 15) / 60
+    if hour >= 24:
+        return max(0.0, 24.0 - duration)
+    return max(0.0, hour)
 
 
 def format_clock_hour(hour: float) -> str:
@@ -508,14 +532,16 @@ class Store:
 
     def infer_schedule_task_type(self, payload: dict) -> str:
         explicit = payload.get("task_type") or payload.get("taskType")
-        if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
-            return explicit
         due = str(payload.get("due") or payload.get("deadline") or "")
         context = str(payload.get("context") or "")
         text = f"{due} {context}"
         has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         fixed_words = re.search(r"(会议|开会|组会|上课|面试|appointment|meeting)", text, re.I)
-        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due)", text, re.I)
+        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\\bby\\b|before)", text, re.I)
+        if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
+            if explicit == "fixed_event" and deadline_words and not fixed_words:
+                return "flexible_task"
+            return explicit
         if has_clock and (fixed_words or not deadline_words):
             return "fixed_event"
         return "flexible_task"
@@ -632,12 +658,31 @@ class Store:
         return dimensions
 
     def create_task(self, user_id: str, payload: dict) -> dict:
-        task_id = payload.get("id") or new_id("task")
         title = payload.get("title", "未命名任务")
         context = payload.get("context", "")
         task_type = payload.get("type") or self.infer_task_type(title, context)
         schedule_task_type = self.infer_schedule_task_type(payload)
         deadline = payload.get("deadline") or payload.get("due")
+        if not payload.get("id"):
+            normalized_title = re.sub(r"\s+", " ", str(title)).strip().lower()
+            normalized_due = re.sub(r"\s+", " ", str(payload.get("due") or deadline or "")).strip().lower()
+            with self.connect() as conn:
+                duplicate = conn.execute(
+                    """
+                    SELECT * FROM tasks
+                    WHERE user_id=? AND lower(trim(title))=? AND lower(trim(coalesce(due, '')))=?
+                      AND status NOT IN ('completed', 'terminated')
+                    ORDER BY
+                      CASE WHEN slot_json IS NOT NULL AND slot_json != 'null' THEN 0 ELSE 1 END,
+                      updated_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, normalized_title, normalized_due),
+                ).fetchone()
+            if duplicate:
+                self.log_event(user_id, "task_deduplicated", {"task_id": duplicate["id"], "title": title})
+                return self.task_row(duplicate)
+        task_id = payload.get("id") or new_id("task")
         priority = payload.get("priority", "中")
         duration = infer_duration_minutes(f"{title} {context}") or int(
             payload.get("estimated_duration") or payload.get("duration", 60)
@@ -741,7 +786,7 @@ class Store:
                     "role": "system",
                     "content": (
                         "你是 HumanOS 的任务解析 agent。只输出 JSON。"
-                        "从用户中文输入中提取所有学习任务。"
+                        "从用户中文或英文输入中提取所有学习任务。"
                         "如果一句话包含多个时间点或多个动作，必须拆成多个任务。"
                         "区分 flexible_task 和 fixed_event："
                         "有固定会议、上课、明确开始时间且必须按时发生的是 fixed_event；"
@@ -1115,36 +1160,65 @@ class Store:
             response["reply"] = f"我已把时间补充到上一轮 {len(followup_tasks)} 个任务上，并在右侧生成待确认安排。"
             intent = "reschedule"
             response["intent"] = intent
-        should_parse_tasks = any(
-            word in text
-            for word in [
-                "任务",
-                "写",
-                "读",
-                "阅读",
-                "整理",
-                "完成",
-                "复习",
-                "学习",
-                "开会",
-                "会议",
-                "组会",
-                "取",
-                "拿",
-                "办",
-                "买",
-                "发",
-                "看",
-                "做",
-                "分钟",
-                "小时",
-                "点",
-                "时",
-                "明天",
-                "今天",
-                "周",
-            ]
-        ) and (intent in {"add_task", "reschedule", "other"} or self.looks_like_compact_multi_task_list(text))
+        lower_text = text.lower()
+        task_keywords = [
+            "任务",
+            "写",
+            "读",
+            "阅读",
+            "整理",
+            "完成",
+            "复习",
+            "学习",
+            "开会",
+            "会议",
+            "组会",
+            "取",
+            "拿",
+            "办",
+            "买",
+            "发",
+            "看",
+            "做",
+            "分钟",
+            "小时",
+            "点",
+            "时",
+            "明天",
+            "今天",
+            "周",
+            "need to",
+            "todo",
+            "task",
+            "finish",
+            "complete",
+            "write",
+            "read",
+            "review",
+            "study",
+            "prepare",
+            "exam",
+            "examination",
+            "design",
+            "deadline",
+            "due",
+            "today",
+            "tomorrow",
+            "august",
+            "agust",
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
+        should_parse_tasks = (
+            intent in {"add_task", "reschedule"}
+            or any(word in lower_text for word in task_keywords)
+            or self.looks_like_compact_multi_task_list(text)
+        ) and intent in {"add_task", "reschedule", "other", "progress_update"}
         if should_parse_tasks and not response["tasks"]:
             intent = "add_task" if intent == "progress_update" else intent
             response["intent"] = intent
@@ -1253,11 +1327,18 @@ class Store:
             return []
         if self.looks_like_compact_multi_task_list(text):
             return []
+        lower_text = text.lower()
+        looks_like_new_task = re.search(
+            r"\b(i\s+also\s+have|also\s+have|i\s+have|need\s+to|have\s+to|final\s+exam|examination|exam|deadline|due|by)\b",
+            lower_text,
+        )
         has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         if not has_time:
             return []
         has_reference_marker = re.search(r"(第[一二三四五六七八九\d]+|这个|那个|开始|在|都是|每个)", text)
         has_time_range = parse_clock_range(text) is not None
+        if looks_like_new_task and not has_reference_marker and not has_time_range:
+            return []
         if not has_reference_marker and not has_time_range and len(recent_tasks) != 1:
             return []
 
@@ -1342,6 +1423,7 @@ class Store:
         updated_tasks = []
         for target_index, part, start, duration in assignments[: len(recent_tasks)]:
             task = recent_tasks[target_index]
+            start = normalize_calendar_hour(start, duration)
             updated = self.patch_task(
                 task["id"],
                 {

@@ -296,6 +296,36 @@ const I18N = {
     manualAddedBody: "已加入日历视图。",
     editDecision: "编辑判断",
     autoReason: "根据当前任务和状态生成安排。",
+    movedPendingTitle: "待确认安排已调整",
+    movedPendingBody: "的建议时间已移动到",
+    movedPendingSuffix: "确认后才会写入日历。",
+    scheduleJudgement: "调整判断",
+    movedScheduledBody: "已移动到",
+    longBlockNote: "当前状态下这个时间块偏长，建议中途保留一次上下文检查。",
+    keepCalendarNote: "这个安排会保留在日历上，你仍然可以继续拖拽调整。",
+    needConditionTitle: "需要确认条件",
+    needConditionBody: "生成安排前，我至少需要知道：任务标题、截止日期、预计时长。只有固定会议或固定事件才需要具体开始时间。",
+    confirmPlanTitle: "请确认安排",
+    confirmPlanBody: "我已经在右侧生成待确认安排。确认后才会加入日历。",
+    needInputTitle: "需要输入",
+    needInputBody: "请直接告诉我你想安排、推进或反馈的任务。",
+    you: "你",
+    fallbackReply: "我会先把这句话拆成任务处理，并生成待确认安排。",
+    blockerPrefix: "可能卡点",
+    needTimeTitle: "需要确认时间",
+    stillNeed: "还需要",
+    taskParsedOne: "我先把它解析成一个任务，并在右侧生成待确认安排。",
+    taskParsedManyPrefix: "我先把它解析成",
+    taskParsedManySuffix: "个任务，并在右侧生成待确认安排。",
+    progressReply: "收到进展。你可以继续补充下一步，或让我根据当前状态重新安排。",
+    interruptionReply: "收到中断情况。请补一句回来后第一步，我会把它作为恢复线索。",
+    loggedReply: "我已经记录了这条信息，会用它更新后续安排判断。",
+    processFailedTitle: "处理失败",
+    processFailedBody: "暂时无法处理这条消息，请稍后再试。",
+    startReminderTitle: "任务开始提醒",
+    startReminderBody: "的计划时间到了。你现在准备开始吗？如果不能开始，可以告诉我原因。",
+    progressCheckTitle: "任务进展检查",
+    progressCheckBody: "这个时间块结束了。现在进展到哪里？下一步是什么？",
     accountTitle: "打开个人主页",
     collapseTitle: "收起侧边栏",
     expandTitle: "展开侧边栏",
@@ -398,6 +428,36 @@ const I18N = {
     manualAddedBody: "was added to the calendar view.",
     editDecision: "Edit review",
     autoReason: "Generate a schedule from current tasks and state.",
+    movedPendingTitle: "Pending plan adjusted",
+    movedPendingBody: "suggested time moved to",
+    movedPendingSuffix: "It will be written to the calendar only after confirmation.",
+    scheduleJudgement: "Schedule review",
+    movedScheduledBody: "moved to",
+    longBlockNote: "This block is long for the current state. Keep a context checkpoint in the middle.",
+    keepCalendarNote: "This arrangement will stay on the calendar, and you can still drag to adjust it.",
+    needConditionTitle: "Need scheduling details",
+    needConditionBody: "Before generating a schedule, I need at least the task title, deadline, and estimated duration. Only fixed meetings or fixed events need an exact start time.",
+    confirmPlanTitle: "Confirm schedule",
+    confirmPlanBody: "I generated a pending schedule on the right. It will be added to the calendar after confirmation.",
+    needInputTitle: "Input needed",
+    needInputBody: "Tell me the task, progress, or feedback you want to handle.",
+    you: "You",
+    fallbackReply: "I will parse this into tasks and generate a pending schedule.",
+    blockerPrefix: "Possible blockers",
+    needTimeTitle: "Need time details",
+    stillNeed: "still needs",
+    taskParsedOne: "I parsed this into one task and generated a pending schedule on the right.",
+    taskParsedManyPrefix: "I parsed this into",
+    taskParsedManySuffix: "tasks and generated a pending schedule on the right.",
+    progressReply: "Progress received. You can add the next step or ask me to reschedule from the current state.",
+    interruptionReply: "Interruption noted. Add the first step back and I will save it as a recovery cue.",
+    loggedReply: "I recorded this and will use it for later scheduling decisions.",
+    processFailedTitle: "Processing failed",
+    processFailedBody: "I cannot process this message right now. Try again later.",
+    startReminderTitle: "Task start reminder",
+    startReminderBody: "is scheduled to start now. Are you ready to begin? If not, tell me why.",
+    progressCheckTitle: "Task progress check",
+    progressCheckBody: "block ended. Where did you get to, and what is the next step?",
     accountTitle: "Open profile",
     collapseTitle: "Collapse sidebar",
     expandTitle: "Expand sidebar",
@@ -412,6 +472,41 @@ function t(key) {
 
 function isEnglish() {
   return currentLang === "en";
+}
+
+function priorityLabel(priority) {
+  if (!isEnglish()) return priority;
+  if (priority === "高") return "High";
+  if (priority === "中") return "Medium";
+  if (priority === "低") return "Low";
+  return priority || "Medium";
+}
+
+function localizedTurnReply(turn = {}, taskCount = 0) {
+  if (!isEnglish()) return turn.reply || t("loggedReply");
+  if (taskCount > 1) return `${t("taskParsedManyPrefix")} ${taskCount} ${t("taskParsedManySuffix")}`;
+  if (taskCount === 1) return t("taskParsedOne");
+  if (turn.intent === "progress_update") return t("progressReply");
+  if (turn.intent === "interruption") return t("interruptionReply");
+  return t("loggedReply");
+}
+
+function localizedPlanExplanation(plan = {}) {
+  if (!isEnglish()) return plan.explanation || "已生成建议安排。";
+  if (plan.action === "ask_confirmation") return t("confirmPlanBody");
+  return "I generated a candidate schedule from the current task and state.";
+}
+
+function localizedMissingField(field) {
+  if (!isEnglish()) return field;
+  const map = {
+    "任务标题": "task title",
+    "哪一天": "date",
+    "开始时间": "start time",
+    "截止日期": "deadline",
+    "预计时长": "estimated duration"
+  };
+  return map[field] || field;
 }
 
 function save() {
@@ -695,6 +790,7 @@ function showWorkspaceView() {
   profileHomeView.classList.add("hidden");
   workspaceNavBtn.classList.add("active");
   profileHomeBtn.classList.remove("active");
+  setSidebarActive("calendar");
 }
 
 function showProfileHomeView() {
@@ -702,7 +798,29 @@ function showProfileHomeView() {
   profileHomeView.classList.remove("hidden");
   workspaceNavBtn.classList.remove("active");
   profileHomeBtn.classList.add("active");
+  setSidebarActive("profile");
   renderProfileSummary();
+}
+
+function setSidebarActive(section) {
+  const activeMap = {
+    chat: sidebarChatBtn,
+    calendar: sidebarCalendarBtn,
+    tasks: sidebarTasksBtn,
+    profile: sidebarProfileBtn
+  };
+  Object.values(activeMap).forEach((button) => button?.classList.remove("active"));
+  activeMap[section]?.classList.add("active");
+}
+
+function scrollCalendarIntoView() {
+  calendar?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  calendar?.focus?.();
+}
+
+function scrollTaskDetailsIntoView() {
+  document.querySelector(".motion-right-rail")?.scrollTo({ top: 0, behavior: "smooth" });
+  document.querySelector(".inspector-panel")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function setAuthMode(mode) {
@@ -754,19 +872,23 @@ function chatMessagesFromTurns(turns = []) {
   return turns.flatMap((turn) => {
     const createdAt = formatBackendTime(turn.created_at);
     const confidenceText = formatConfidence(chatConfidence(turn));
-    const blockerText = turn.features?.blockers?.length ? `\n可能卡点：${turn.features.blockers.join(" / ")}` : "";
+    const blockerText = turn.features?.blockers?.length ? `\n${t("blockerPrefix")}：${turn.features.blockers.join(" / ")}` : "";
     const featureText = `${blockerText}${confidenceText ? `\n${confidenceText}` : ""}`;
+    const taskIds = Array.isArray(turn.task_ids) ? turn.task_ids : [];
+    const reply = isEnglish()
+      ? localizedTurnReply({ ...turn, reply: turn.assistant_reply }, taskIds.length)
+      : turn.assistant_reply;
     return [
       {
         sender: "user",
-        title: "你",
+        title: t("you"),
         text: turn.user_text,
         createdAt
       },
       {
         sender: "ai",
         title: "HumanOS",
-        text: `${turn.assistant_reply}${featureText}`,
+        text: `${reply}${featureText}`,
         createdAt
       }
     ];
@@ -907,6 +1029,25 @@ function dayIndexFromDue(due = "") {
   const map = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
   const weekMatch = text.match(/(?:周|星期)([一二三四五六日天])/);
   if (weekMatch) return map[weekMatch[1]];
+  const isoDateMatch = text.match(/(?:^|[^\d])(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?=$|[^\d])/);
+  if (isoDateMatch) {
+    const date = new Date(Number(isoDateMatch[1]), Number(isoDateMatch[2]) - 1, Number(isoDateMatch[3]));
+    if (!Number.isNaN(date.getTime())) return date.getDay() === 0 ? 6 : date.getDay() - 1;
+  }
+  const englishMonthMatch = text.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|agust|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/i
+  );
+  if (englishMonthMatch) {
+    const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    const monthText = englishMonthMatch[1].toLowerCase().replace(".", "");
+    const normalizedMonth = monthText === "agust" ? "aug" : monthText.slice(0, 3);
+    const monthIndex = monthNames.indexOf(normalizedMonth);
+    if (monthIndex >= 0) {
+      const base = getNow();
+      const date = new Date(base.getFullYear(), monthIndex, Number(englishMonthMatch[2]));
+      if (!Number.isNaN(date.getTime())) return date.getDay() === 0 ? 6 : date.getDay() - 1;
+    }
+  }
   const base = getNow();
   if (/今天|今晚/.test(text)) return (base.getDay() + 6) % 7;
   if (/明天/.test(text)) {
@@ -926,19 +1067,21 @@ function normalizedSlotForDue(task) {
   const durationHours = taskDurationHours(task);
   const dueStart = taskScheduleType(task) === "fixed_event" ? parseDueStartHour(task.due) : null;
   if (dueStart !== null && Math.abs(Number(slot.start) - dueStart) > 0.01) {
+    const normalizedDueStart = dueStart >= 24 ? Math.max(0, 24 - durationHours) : Math.max(0, dueStart);
     return {
       ...slot,
-      start: dueStart,
-      end: dueStart + durationHours,
+      start: normalizedDueStart,
+      end: Math.min(24, normalizedDueStart + durationHours),
       correctedFromDue: true
     };
   }
   const start = Number(slot.start);
+  const normalizedStart = start >= 24 ? Math.max(0, 24 - durationHours) : Math.max(0, start);
   const end = Number(slot.end);
   return {
     ...slot,
-    start,
-    end: Number.isFinite(end) && end > start ? end : start + durationHours
+    start: normalizedStart,
+    end: Number.isFinite(end) && end > normalizedStart ? Math.min(end, 24) : normalizedStart + durationHours
   };
 }
 
@@ -1528,8 +1671,10 @@ async function moveTaskToHour(taskId, startHour) {
     selectTask(task.id, "manual");
     addChatMessage(
       "ai",
-      "待确认安排已调整",
-      `${task.title} 的建议时间已移动到 ${formatHour(pendingBlock.start)}-${formatHour(pendingBlock.end)}。确认后才会写入日历。`
+      t("movedPendingTitle"),
+      isEnglish()
+        ? `${task.title} ${t("movedPendingBody")} ${formatHour(pendingBlock.start)}-${formatHour(pendingBlock.end)}. ${t("movedPendingSuffix")}`
+        : `${task.title} ${t("movedPendingBody")} ${formatHour(pendingBlock.start)}-${formatHour(pendingBlock.end)}。${t("movedPendingSuffix")}`
     );
     render();
     return;
@@ -1548,8 +1693,10 @@ async function moveTaskToHour(taskId, startHour) {
   await patchBackendTask(task);
   addChatMessage(
     "ai",
-    "调整判断",
-    `${task.title} 已移动到 ${formatHour(task.slot.start)}-${formatHour(task.slot.end)}。${stateBasedScheduleNote(task)}`
+    t("scheduleJudgement"),
+    isEnglish()
+      ? `${task.title} ${t("movedScheduledBody")} ${formatHour(task.slot.start)}-${formatHour(task.slot.end)}. ${stateBasedScheduleNote(task)}`
+      : `${task.title} ${t("movedScheduledBody")} ${formatHour(task.slot.start)}-${formatHour(task.slot.end)}。${stateBasedScheduleNote(task)}`
   );
   render();
 }
@@ -1558,16 +1705,16 @@ function stateBasedScheduleNote(task) {
   const energy = Number(energyInput.value);
   const stress = Number(stressInput.value);
   if (taskDurationHours(task) >= 2 && (energy <= 3 || stress >= 6)) {
-    return "当前状态下这个时间块偏长，建议中途保留一次上下文检查。";
+    return t("longBlockNote");
   }
-  return "这个安排会保留在日历上，你仍然可以继续拖拽调整。";
+  return t("keepCalendarNote");
 }
 
 async function requestTentativeSchedule(reason = "基于当前输入生成安排", targetTasks = null) {
   const sourceTasks = Array.isArray(targetTasks) && targetTasks.length ? targetTasks : tasks;
   const schedulableTasks = sourceTasks.filter((task) => missingTimeConfirmationFields(task).length === 0);
   if (!schedulableTasks.length) {
-    addChatMessage("ai", "需要确认条件", "生成安排前，我至少需要知道：任务标题、截止日期、预计时长。只有固定会议或固定事件才需要具体开始时间。");
+    addChatMessage("ai", t("needConditionTitle"), t("needConditionBody"));
     return;
   }
   if (backendOnline) {
@@ -1576,6 +1723,7 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
       method: "POST",
       body: JSON.stringify({
         user_id: currentUserId(),
+        language: currentLang,
         runtime_state: runtimeState,
         tasks: schedulableTasks
       })
@@ -1612,29 +1760,29 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
     });
   }
   lastDecision = pendingSchedulePlan;
-  addChatMessage("ai", "请确认安排", "我已经在右侧生成待确认安排。确认后才会加入日历。");
+  addChatMessage("ai", t("confirmPlanTitle"), t("confirmPlanBody"));
 }
 
 async function handleChatTurn(text) {
   const clean = text.trim();
   if (!clean) {
-    addChatMessage("ai", "需要输入", "请直接告诉我你想安排、推进或反馈的任务。");
+    addChatMessage("ai", t("needInputTitle"), t("needInputBody"));
     render();
     return;
   }
-  addChatMessage("user", "你", clean);
+  addChatMessage("user", t("you"), clean);
   chatSendBtn.disabled = true;
   try {
     let turn;
     if (backendOnline) {
       const response = await api("/api/chat/turn", {
         method: "POST",
-        body: JSON.stringify({ user_id: currentUserId(), text: clean })
+        body: JSON.stringify({ user_id: currentUserId(), text: clean, language: currentLang })
       });
       turn = response.turn;
     } else {
       turn = {
-        reply: "我会先把这句话拆成任务处理，并生成待确认安排。",
+        reply: t("fallbackReply"),
         confidence: 0.58,
         features: { intent: "add_task", blockers: [], confidence: 0.58 },
         tasks: localFallbackTasksFromText(clean)
@@ -1655,9 +1803,9 @@ async function handleChatTurn(text) {
     }
     chatInput.value = "";
     const confidenceText = formatConfidence(chatConfidence(turn));
-    const blockerText = turn.features?.blockers?.length ? `\n可能卡点：${turn.features.blockers.join(" / ")}` : "";
+    const blockerText = turn.features?.blockers?.length ? `\n${t("blockerPrefix")}：${turn.features.blockers.join(" / ")}` : "";
     const featureText = `${blockerText}${confidenceText ? `\n${confidenceText}` : ""}`;
-    addChatMessage("ai", "HumanOS", `${turn.reply}${featureText}`);
+    addChatMessage("ai", "HumanOS", `${localizedTurnReply(turn, createdTasks.length)}${featureText}`);
     if (createdTasks.length) {
       const incompleteTasks = createdTasks
         .map((task) => ({ task, missing: missingTimeConfirmationFields(task) }))
@@ -1666,19 +1814,21 @@ async function handleChatTurn(text) {
       if (incompleteTasks.length) {
         addChatMessage(
           "ai",
-          "需要确认时间",
+          t("needTimeTitle"),
           incompleteTasks
-            .map(({ task, missing }) => `${task.title}：还需要 ${missing.join("、")}`)
+            .map(({ task, missing }) => isEnglish()
+              ? `${task.title}: ${t("stillNeed")} ${missing.map(localizedMissingField).join(", ")}`
+              : `${task.title}：${t("stillNeed")} ${missing.join("、")}`)
             .join("\n")
         );
       }
       if (schedulableTasks.length) {
-        await requestTentativeSchedule("根据刚刚解析出的任务生成安排。", schedulableTasks);
+        await requestTentativeSchedule(isEnglish() ? "Generate a schedule from the task just parsed." : "根据刚刚解析出的任务生成安排。", schedulableTasks);
       }
     }
     render();
   } catch (error) {
-    addChatMessage("ai", "处理失败", "暂时无法处理这条消息，请稍后再试。");
+    addChatMessage("ai", t("processFailedTitle"), t("processFailedBody"));
     console.error(error);
     render();
   } finally {
@@ -1703,8 +1853,9 @@ function activeCandidateScore(block) {
   const start = Number(block.start);
   const end = Number(block.end);
   if (dayDistance === 0 && start <= nowHour && nowHour < end) return -1000 + start;
-  if (dayDistance === 0 && start >= nowHour) return start;
-  return dayDistance * 24 + start;
+  if (dayDistance === 0 && start >= nowHour) return start - nowHour;
+  if (dayDistance === 0) return 100 + (nowHour - end);
+  return 200 + dayDistance * 24 + start;
 }
 
 function defaultActiveTaskId() {
@@ -1731,11 +1882,19 @@ function checkTaskTimePrompts(force = false) {
     const endKey = `${task.id}:end:${task.slot.end}`;
     if ((force || Math.abs(nowHour - task.slot.start) <= 0.08) && !promptedSlots.has(startKey)) {
       promptedSlots.add(startKey);
-      addChatMessage("ai", "任务开始提醒", `${task.title} 的计划时间到了。你现在准备开始吗？如果不能开始，可以告诉我原因。`);
+      addChatMessage(
+        "ai",
+        t("startReminderTitle"),
+        isEnglish() ? `${task.title} ${t("startReminderBody")}` : `${task.title}${t("startReminderBody")}`
+      );
     }
     if ((force || Math.abs(nowHour - task.slot.end) <= 0.08) && !promptedSlots.has(endKey)) {
       promptedSlots.add(endKey);
-      addChatMessage("ai", "任务进展检查", `${task.title} 这个时间块结束了。现在进展到哪里？下一步是什么？`);
+      addChatMessage(
+        "ai",
+        t("progressCheckTitle"),
+        isEnglish() ? `${task.title} ${t("progressCheckBody")}` : `${task.title} ${t("progressCheckBody")}`
+      );
     }
   });
   save();
@@ -1935,7 +2094,7 @@ function renderActiveTask() {
     <h3>${escapeHtml(task.title)}</h3>
     <p>${escapeHtml(task.context || "暂无任务说明。")}</p>
     <div class="task-meta" style="margin-top:12px">
-      <span class="tag ${priorityClass(task.priority)}">${escapeHtml(task.priority)}${t("prioritySuffix")}</span>
+      <span class="tag ${priorityClass(task.priority)}">${escapeHtml(priorityLabel(task.priority))}${t("prioritySuffix")}</span>
       <span class="tag">${task.duration} ${t("minutes")}</span>
       <span class="tag">${escapeHtml(task.due)}</span>
       <span class="tag">${scheduleText}</span>
@@ -2163,7 +2322,10 @@ function renderPendingSchedule() {
     })
     .filter(Boolean);
   pendingSchedule.classList.remove("hidden");
-  pendingScheduleText.textContent = `${pendingSchedulePlan.explanation || (isEnglish() ? "Suggested schedule generated." : "已生成建议安排。")} ${violationLines.join("；")} ${lines.join("；")}`;
+  const separator = isEnglish() ? "; " : "；";
+  pendingScheduleText.textContent = [localizedPlanExplanation(pendingSchedulePlan), ...violationLines, ...lines]
+    .filter(Boolean)
+    .join(separator);
 }
 
 function createCheckpointFromFeedback(text) {
@@ -2326,20 +2488,25 @@ sidebarCollapseBtn?.addEventListener("click", () => {
 
 sidebarChatBtn?.addEventListener("click", () => {
   showWorkspaceView();
+  setSidebarActive("chat");
   document.body.classList.remove("sidebar-collapsed");
   chatInput.focus();
 });
 
 sidebarCalendarBtn?.addEventListener("click", () => {
   showWorkspaceView();
-  calendar.scrollIntoView({ block: "nearest" });
-  calendar.focus?.();
+  setSidebarActive("calendar");
+  scrollCalendarIntoView();
 });
 
 sidebarTasksBtn?.addEventListener("click", () => {
   showWorkspaceView();
+  setSidebarActive("tasks");
+  activeSelectionMode = "auto";
+  activeId = defaultActiveTaskId();
+  render();
   if (selectedTask()) {
-    document.querySelector(".motion-right-rail")?.scrollTo({ top: 0, behavior: "smooth" });
+    scrollTaskDetailsIntoView();
   } else {
     openTaskDialog();
   }
@@ -2368,6 +2535,8 @@ chatInput.addEventListener("keydown", (event) => {
 
 workspaceNavBtn.addEventListener("click", () => {
   showWorkspaceView();
+  setSidebarActive("calendar");
+  scrollCalendarIntoView();
 });
 
 profileHomeBtn.addEventListener("click", () => {

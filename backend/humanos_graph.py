@@ -79,6 +79,12 @@ def parse_due_start_hour(due: str | None) -> float | None:
     return float(hour)
 
 
+def normalize_calendar_start(start: float, duration: float) -> float:
+    if start >= 24:
+        return max(0.0, 24.0 - duration)
+    return max(0.0, start)
+
+
 def parse_time_range(text: str | None) -> tuple[float, float] | None:
     clean = str(text or "")
     range_match = re.search(
@@ -378,7 +384,7 @@ def scheduler_node(_: Any):
             duration = max(duration_minutes, 15) / 60
             explicit_start = parse_due_start_hour(task.get("due")) if task_kind == "fixed_event" else None
             if explicit_start is not None:
-                start = explicit_start
+                start = normalize_calendar_start(explicit_start, duration)
             else:
                 deep_available = intersect_windows(deep_work_windows, available_windows)
                 non_deep_available = subtract_windows(available_windows, deep_available)
