@@ -536,7 +536,7 @@ class Store:
         context = str(payload.get("context") or "")
         text = f"{due} {context}"
         has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
-        fixed_words = re.search(r"(会议|开会|组会|上课|面试|appointment|meeting)", text, re.I)
+        fixed_words = re.search(r"(会议|开会|组会|上课|面试|吃饭|午饭|午餐|晚饭|早餐|appointment|meeting|lunch|dinner|breakfast|meal|exam|examination)", text, re.I)
         deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\\bby\\b|before)", text, re.I)
         if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
             if explicit == "fixed_event" and deadline_words and not fixed_words:
@@ -786,10 +786,10 @@ class Store:
                     "role": "system",
                     "content": (
                         "你是 HumanOS 的任务解析 agent。只输出 JSON。"
-                        "从用户中文或英文输入中提取所有学习任务。"
+                        "从用户中文或英文输入中提取所有学习任务、固定事件和生活安排。"
                         "如果一句话包含多个时间点或多个动作，必须拆成多个任务。"
                         "区分 flexible_task 和 fixed_event："
-                        "有固定会议、上课、明确开始时间且必须按时发生的是 fixed_event；"
+                        "有固定会议、上课、吃饭、考试、明确开始时间且必须按时发生的是 fixed_event；"
                         "只需要在截止日前完成、可由系统安排执行窗口的是 flexible_task。"
                         "不要输出解释。"
                     ),
@@ -1199,6 +1199,12 @@ class Store:
             "prepare",
             "exam",
             "examination",
+            "plan to",
+            "eat",
+            "lunch",
+            "breakfast",
+            "dinner",
+            "meal",
             "design",
             "deadline",
             "due",
@@ -1329,7 +1335,7 @@ class Store:
             return []
         lower_text = text.lower()
         looks_like_new_task = re.search(
-            r"\b(i\s+also\s+have|also\s+have|i\s+have|need\s+to|have\s+to|final\s+exam|examination|exam|deadline|due|by)\b",
+            r"\b(i\s+also\s+have|also\s+have|i\s+have|i\s+plan\s+to|plan\s+to|need\s+to|have\s+to|eat|lunch|breakfast|dinner|meal|final\s+exam|examination|exam|deadline|due|by)\b",
             lower_text,
         )
         has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
