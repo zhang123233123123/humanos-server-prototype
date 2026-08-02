@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HumanOS Task Resumption Prototype</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=20260802-i18n-controls">
+  <link rel="stylesheet" href="styles.css?v=20260802-task-detail-picker">
 </head>
 <body>
   <section class="auth-screen" id="authScreen">
@@ -318,6 +318,11 @@
                 <p id="resumeSubtitle">选择一个任务</p>
               </div>
             </div>
+
+            <label class="task-detail-picker">
+              <span id="taskDetailPickerLabel">选择任务</span>
+              <select id="taskDetailSelect" aria-label="选择任务"></select>
+            </label>
 
             <section class="active-task" id="activeTask"></section>
 

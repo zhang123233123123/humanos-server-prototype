@@ -104,6 +104,8 @@ const chatThread = document.getElementById("chatThread");
 const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
 const activeTask = document.getElementById("activeTask");
+const taskDetailSelect = document.getElementById("taskDetailSelect");
+const taskDetailPickerLabel = document.getElementById("taskDetailPickerLabel");
 const contextWindow = document.getElementById("contextWindow");
 const checkpointView = document.getElementById("checkpointView");
 const checkpointCount = document.getElementById("checkpointCount");
@@ -225,6 +227,7 @@ const I18N = {
     cancel: "取消",
     confirmCalendar: "确认加入日历",
     taskDetail: "任务详情",
+    chooseTask: "选择任务",
     contextWindow: "上下文窗口",
     contextHint: "恢复任务时先看这里",
     interruptions: "中断记录",
@@ -437,6 +440,7 @@ const I18N = {
     cancel: "Cancel",
     confirmCalendar: "Add to calendar",
     taskDetail: "Task Details",
+    chooseTask: "Choose task",
     contextWindow: "Context Window",
     contextHint: "Check this before resuming",
     interruptions: "Interruptions",
@@ -959,6 +963,7 @@ function applyTranslations() {
   setText("#saveProfileBtn", t("savePreference"));
   setText("#openProfileWizardBtn", t("refillProfile"));
   setText("#deleteTaskBtn", t("deleteTask"));
+  setText("#taskDetailPickerLabel", t("chooseTask"));
   setText("#saveTaskBtn", editingTaskId ? (isEnglish() ? "Save changes" : "保存修改") : (isEnglish() ? "Save" : "保存"));
   setLabelText("wizardRole", t("wizardRoleLabel"));
   setLabelText("wizardLearningMode", t("wizardLearningModeLabel"));
@@ -2469,7 +2474,47 @@ function displayAvailableWindow(value = "") {
   return hasTimeRangeText(clean) ? clean : t("invalidAvailableWindow");
 }
 
+function taskDetailOptions() {
+  const pendingOrder = pendingPlanBlocks()
+    .map((block) => {
+      const task = tasks.find((item) => item.id === block.task_id);
+      return task ? { task, score: planBlockScore(block), source: "pending" } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score);
+  const seen = new Set();
+  const options = [];
+  pendingOrder.forEach((item) => {
+    if (seen.has(item.task.id)) return;
+    seen.add(item.task.id);
+    options.push(item);
+  });
+  tasks
+    .filter((task) => !seen.has(task.id) && task.status !== "completed" && task.status !== "terminated")
+    .forEach((task, index) => {
+      seen.add(task.id);
+      options.push({ task, score: 10000 + index, source: "task" });
+    });
+  return options;
+}
+
+function renderTaskDetailPicker() {
+  if (!taskDetailSelect) return;
+  const options = taskDetailOptions();
+  taskDetailSelect.disabled = options.length === 0;
+  taskDetailSelect.innerHTML = options.length
+    ? options.map(({ task, source }) => {
+      const block = pendingBlockForTask(task.id) || taskCalendarBlock(task);
+      const time = block ? `${formatHour(block.start)}-${formatHour(block.end)}` : t("unscheduled");
+      const prefix = source === "pending" ? t("pending") : statusLabel(task);
+      return `<option value="${escapeHtml(task.id)}">${escapeHtml(prefix)} · ${escapeHtml(task.title)} · ${escapeHtml(task.due)} · ${time}</option>`;
+    }).join("")
+    : `<option value="">${t("noTask")}</option>`;
+  taskDetailSelect.value = tasks.some((task) => task.id === activeId) ? activeId : (options[0]?.task.id || "");
+}
+
 function renderActiveTask() {
+  renderTaskDetailPicker();
   const task = selectedTask();
   if (!task) {
     resumeSubtitle.textContent = t("noTask");
@@ -2940,6 +2985,13 @@ chatInput.addEventListener("keydown", (event) => {
     event.preventDefault();
     handleChatTurn(chatInput.value);
   }
+});
+
+taskDetailSelect?.addEventListener("change", () => {
+  if (!taskDetailSelect.value) return;
+  selectTask(taskDetailSelect.value, "manual");
+  scrollTaskDetailsIntoView();
+  render();
 });
 
 workspaceNavBtn.addEventListener("click", () => {

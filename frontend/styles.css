@@ -4132,6 +4132,28 @@ button,
   border: 0;
 }
 
+.task-detail-picker {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--motion-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-detail-picker select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--motion-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--motion-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .active-task,
 .context-window-box,
 .checkpoint-box,
