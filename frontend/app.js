@@ -2677,9 +2677,23 @@ function renderPendingSchedule() {
     pendingScheduleText.textContent = "";
     return;
   }
-  const lines = pendingPlanBlocks().map((block) => {
+  const groups = new Map();
+  pendingPlanBlocks().forEach((block) => {
     const task = tasks.find((item) => item.id === block.task_id);
-    return `${task?.title || (isEnglish() ? "Task" : "任务")}：${formatHour(block.start)}-${formatHour(block.end)}`;
+    const title = task?.title || (isEnglish() ? "Task" : "任务");
+    const existing = groups.get(title) || [];
+    existing.push(block);
+    groups.set(title, existing);
+  });
+  const lines = [...groups.entries()].map(([title, blocks]) => {
+    const first = blocks[0];
+    const sameTime = blocks.every((block) => Math.abs(block.start - first.start) < 0.01 && Math.abs(block.end - first.end) < 0.01);
+    if (blocks.length > 2 && sameTime) {
+      return isEnglish()
+        ? `${title}: ${formatHour(first.start)}-${formatHour(first.end)} · ${blocks.length} times`
+        : `${title}：${formatHour(first.start)}-${formatHour(first.end)} · ${blocks.length}次`;
+    }
+    return blocks.map((block) => `${title}：${formatHour(block.start)}-${formatHour(block.end)}`).join(isEnglish() ? "; " : "；");
   });
   const violationLines = (pendingSchedulePlan.violations || [])
     .map((violation) => {

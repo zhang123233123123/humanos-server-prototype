@@ -630,7 +630,7 @@ class Store:
         context = str(payload.get("context") or "")
         text = f"{due} {context}"
         has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
-        fixed_words = re.search(r"(会议|开会|组会|上课|面试|吃饭|午饭|午餐|晚饭|早餐|appointment|meeting|lunch|dinner|breakfast|meal|exam|examination)", text, re.I)
+        fixed_words = re.search(r"(会议|开会|开.*会|组会|上课|面试|吃饭|午饭|午餐|晚饭|早餐|appointment|meeting|lunch|dinner|breakfast|meal|exam|examination)", text, re.I)
         deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\bby\b|before)", text, re.I)
         if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
             if explicit == "fixed_event" and deadline_words and not fixed_words:
@@ -1103,13 +1103,14 @@ class Store:
             if part.strip(" ，,。；;、")
         ]
         action_pattern = (
-            r"(会议|开会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发|"
+            r"(会议|开会|开.*会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发|"
             r"\b(?:finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)"
         )
         merged_segments: list[str] = []
         for part in connector_segments:
             has_action = re.search(action_pattern, part)
-            has_duration_only = infer_duration_minutes(part) and not has_action
+            has_date_or_clock = re.search(relative_day, part, re.I) or re.search(time_word, part, re.I)
+            has_duration_only = infer_duration_minutes(part) and not has_action and not has_date_or_clock
             if has_duration_only and merged_segments:
                 merged_segments[-1] = f"{merged_segments[-1]}，{part}"
             else:
