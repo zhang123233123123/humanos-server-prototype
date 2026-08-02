@@ -58,20 +58,36 @@ def retrieve_memory_node(store: Any):
 
 def parse_due_start_hour(due: str | None) -> float | None:
     text = str(due or "")
-    colon_match = re.search(r"(\d{1,2})[:：](\d{2})", text)
+    colon_match = re.search(r"(\d{1,2})[:：](\d{2})\s*(am|pm)?", text, re.I)
     if colon_match:
         hour = int(colon_match.group(1))
         minute = int(colon_match.group(2))
+        meridiem = (colon_match.group(3) or "").lower()
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
         if re.search(r"下午|晚上", text) and hour < 12:
             hour += 12
         if "中午" in text and hour < 11:
             hour += 12
         return hour + minute / 60
-    hour_match = re.search(r"(早上|上午|中午|下午|晚上)?\s*(\d{1,2})\s*(点|时)", text)
-    if not hour_match:
-        return None
-    period = hour_match.group(1) or ""
-    hour = int(hour_match.group(2))
+    hour_match = re.search(r"(早上|上午|中午|下午|晚上)?\s*(\d{1,2})\s*(点|时|am|pm)", text, re.I)
+    if hour_match:
+        period = hour_match.group(1) or ""
+        hour = int(hour_match.group(2))
+        meridiem = (hour_match.group(3) or "").lower()
+    else:
+        standalone = re.fullmatch(r"\s*(\d{1,2})\s*", text)
+        if not standalone:
+            return None
+        period = ""
+        hour = int(standalone.group(1))
+        meridiem = ""
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    if meridiem == "am" and hour == 12:
+        hour = 0
     if period in {"下午", "晚上"} and hour < 12:
         hour += 12
     if period == "中午" and hour < 11:
@@ -113,6 +129,43 @@ def parse_time_ranges(text: str | None) -> list[tuple[float, float]]:
         if parsed:
             ranges.append(parsed)
     return ranges
+
+
+def available_windows_for_profile(profile: dict[str, Any]) -> list[tuple[float, float]]:
+    preferences = profile.get("task_preferences") or {}
+    parsed = parse_time_ranges(preferences.get("available_windows"))
+    return parsed or [(8.0, 22.0)]
+
+
+def deadline_cutoff_hour(task: dict[str, Any]) -> float | None:
+    text = " ".join(
+        str(value or "")
+        for value in [
+            task.get("deadline"),
+            task.get("due"),
+            task.get("context"),
+            (task.get("contextWindow") or {}).get("deadline"),
+        ]
+    )
+    if not re.search(r"(截止|之前|前|due|deadline|\bby\b|before)", text, re.I):
+        return None
+    return parse_due_start_hour(text)
+
+
+def constrain_windows_before(
+    windows: list[tuple[float, float]],
+    cutoff: float | None,
+    duration: float,
+) -> list[tuple[float, float]]:
+    if cutoff is None:
+        return windows
+    constrained = []
+    latest_end = max(0.0, cutoff)
+    for start, end in windows:
+        clipped_end = min(end, latest_end)
+        if clipped_end - start >= duration:
+            constrained.append((start, clipped_end))
+    return constrained
 
 
 def due_day_rank(due: str | None) -> int:
@@ -185,6 +238,19 @@ def task_is_high_load(task: dict[str, Any]) -> bool:
 def task_is_ambiguous(task: dict[str, Any]) -> bool:
     dimensions = task.get("dimensions") or (task.get("contextWindow") or {}).get("dimensions") or {}
     return dimensions.get("clarity") == "low" or dimensions.get("ambiguity") == "high" or task.get("ambiguity") == "high"
+
+
+def task_should_preserve_duration(task: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(value or "")
+        for value in [
+            task.get("title"),
+            task.get("context"),
+            task.get("due"),
+            task.get("deadline"),
+        ]
+    ).lower()
+    return bool(re.search(r"(锻炼|运动|健身|公园|跑步|exercise|workout|gym|park|run|walk)", text))
 
 
 def first_start_in_windows(
@@ -270,7 +336,7 @@ def find_plan_violations(
 ) -> list[dict[str, Any]]:
     profile = profile or {}
     preferences = profile.get("task_preferences") or {}
-    available_windows = parse_time_ranges(preferences.get("available_windows")) or [(0.0, 24.0)]
+    available_windows = available_windows_for_profile(profile)
     low_energy_windows = profile_windows(profile, "low_energy_window")
     task_by_id = {task.get("id"): task for task in tasks}
     violations: list[dict[str, Any]] = []
@@ -344,7 +410,7 @@ def scheduler_node(_: Any):
         stress = int(runtime_state.get("stress", 4))
         palette = ["blue", "green", "violet", "gold"]
         priority_rank = {"高": 0, "中": 1, "低": 2}
-        available_windows = parse_time_ranges(preferences.get("available_windows")) or [(0.0, 24.0)]
+        available_windows = available_windows_for_profile(profile)
         deep_work_windows = profile_windows(profile, "deep_work_window")
         low_energy_windows = profile_windows(profile, "low_energy_window")
         preferred_minutes = int(preferences.get("preferred_session_minutes") or 60)
@@ -376,7 +442,7 @@ def scheduler_node(_: Any):
             if task_kind == "fixed_event":
                 duration_minutes = raw_duration_minutes
             else:
-                duration_minutes = min(raw_duration_minutes, preferred_minutes)
+                duration_minutes = raw_duration_minutes if task_should_preserve_duration(task) else min(raw_duration_minutes, preferred_minutes)
                 if energy <= 3 or focus <= 3:
                     duration_minutes = min(duration_minutes, 30)
                 if stress >= 6 and task_is_high_load(task):
@@ -394,6 +460,11 @@ def scheduler_node(_: Any):
                     candidate_windows = non_deep_available
                 else:
                     candidate_windows = available_windows
+                cutoff = deadline_cutoff_hour(task) if task_kind != "fixed_event" else None
+                constrained_windows = constrain_windows_before(candidate_windows, cutoff, duration)
+                if not constrained_windows and cutoff is not None:
+                    constrained_windows = constrain_windows_before(available_windows, cutoff, duration)
+                candidate_windows = constrained_windows or candidate_windows
                 avoid_windows = low_energy_windows if task_is_high_load(task) else []
                 start = first_start_in_windows(duration, candidate_windows, occupied, cursor, avoid_windows)
             end = start + duration
