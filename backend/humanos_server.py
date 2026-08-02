@@ -700,6 +700,8 @@ class Store:
                         "你是 HumanOS 的 Task Dimension Agent。只输出 JSON。"
                         "判断任务用于调度的认知维度，不要输出面向用户的话。"
                         "不要改变任务标题、时间和截止日期。"
+                        "所有用户心理/状态判断都只是 hypothesis, not measurement；"
+                        "必须给出 evidence 和 confidence_level，不能只给一个看似精确的小数。"
                     ),
                 },
                 {
@@ -724,6 +726,8 @@ class Store:
                                 "collaboration_required": "true/false",
                                 "emotional_resistance": "high/medium/low",
                                 "confidence": "0.0-1.0",
+                                "confidence_level": "high/medium/low",
+                                "evidence": ["支持这些判断的文本或上下文线索"],
                             },
                         }
                     ),
@@ -748,6 +752,10 @@ class Store:
             dimensions["confidence"] = round(float(llm_result.get("confidence", dimensions["confidence"])), 2)
         except (TypeError, ValueError):
             pass
+        if llm_result.get("confidence_level") in {"high", "medium", "low"}:
+            dimensions["confidence_level"] = llm_result["confidence_level"]
+        if isinstance(llm_result.get("evidence"), list):
+            dimensions["evidence"] = llm_result["evidence"][:5]
         dimensions["source"] = "deepseek"
         return dimensions
 
@@ -2155,6 +2163,9 @@ class Store:
         tasks = state.get("tasks", [])
         runtime_state = state.get("runtime_state", {})
         memories = state.get("memories", [])
+        payload = state.get("payload", {})
+        language = payload.get("language") or profile.get("language") or "zh"
+        response_language = "English" if language == "en" else "Chinese"
         llm_result = chat_completion(
             [
                 {
@@ -2163,6 +2174,11 @@ class Store:
                         "你是 HumanOS 的调度解释 agent。只输出 JSON。"
                         "不要说你在收集数据、沉淀画像、使用 embedding 或后端。"
                         "解释要面向学生，简短、具体、可操作。"
+                        "调度必须基于 joint state：任务状态 + 用户状态 + 当前上下文。"
+                        "不要把心理状态说成测量结果；mental-state inference is hypothesis, not measurement。"
+                        "如果置信度低或计划改动影响大，必须表达为需要用户确认。"
+                        "参考候选行动和 transition simulation 后，再说明为什么选择当前建议。"
+                        f"所有面向用户的字段必须使用 {response_language}。"
                     ),
                 },
                 {
@@ -2174,10 +2190,14 @@ class Store:
                             "tasks": tasks[:6],
                             "memory_evidence": memories[:3],
                             "current_decision": decision,
+                            "language": language,
                             "required_schema": {
-                                "explanation": "一句中文安排理由",
-                                "first_action": "用户现在可以立刻开始的一步",
-                                "risk": "可能卡住的原因",
+                                "explanation": f"one short user-facing scheduling reason in {response_language}",
+                                "first_action": f"one immediate next step in {response_language}",
+                                "risk": f"one likely blocker in {response_language}",
+                                "evidence": ["使用了哪些任务/用户状态/上下文证据"],
+                                "confidence_level": "high/medium/low",
+                                "selected_action_id": "从 current_decision.candidate_actions 中选择的 action id",
                             },
                         }
                     ),
@@ -2190,6 +2210,14 @@ class Store:
         decision["explanation"] = llm_result.get("explanation") or decision.get("explanation", "")
         decision["first_action"] = llm_result.get("first_action", "")
         decision["risk"] = llm_result.get("risk", "")
+        if isinstance(llm_result.get("evidence"), list):
+            decision["llm_evidence"] = llm_result["evidence"][:5]
+        if llm_result.get("confidence_level"):
+            confidence_detail = decision.get("confidence_detail") or {}
+            confidence_detail["llm_level"] = llm_result.get("confidence_level")
+            decision["confidence_detail"] = confidence_detail
+        if llm_result.get("selected_action_id"):
+            decision["selected_action_id"] = llm_result.get("selected_action_id")
         decision["llm_provider"] = "deepseek"
         return decision
 

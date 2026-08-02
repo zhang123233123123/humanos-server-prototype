@@ -21,8 +21,12 @@ class HumanOSState(TypedDict, total=False):
     query: str
     memories: list[dict[str, Any]]
     plan_patch: list[dict[str, Any]]
+    joint_state: dict[str, Any]
+    candidate_actions: list[dict[str, Any]]
+    transition_simulations: list[dict[str, Any]]
     explanation: str
     confidence: float
+    confidence_detail: dict[str, Any]
     requires_confirmation: bool
     reasons: list[str]
     violations: list[dict[str, Any]]
@@ -426,6 +430,122 @@ def constraint_validator_node(_: Any):
     return node
 
 
+def build_joint_state(
+    tasks: list[dict[str, Any]],
+    runtime_state: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    preferences = profile.get("task_preferences") or {}
+    task_state = {
+        "total_tasks": len(tasks),
+        "unscheduled_tasks": len([task for task in tasks if task.get("status") not in {"scheduled", "done", "completed"}]),
+        "high_priority_tasks": len([task for task in tasks if task.get("priority") == "高"]),
+        "ambiguous_tasks": len([task for task in tasks if task_is_ambiguous(task)]),
+        "fixed_events": len([task for task in tasks if schedule_task_type(task) == "fixed_event"]),
+    }
+    user_state = {
+        "focus": runtime_state.get("focus", 4),
+        "energy": runtime_state.get("energy", 4),
+        "stress": runtime_state.get("stress", 4),
+        "mood": runtime_state.get("mood", "unknown"),
+        "attention_residue": runtime_state.get("attention_residue", "unknown"),
+    }
+    context_state = {
+        "available_windows": preferences.get("available_windows") or "08:00-22:00",
+        "deep_work_window": profile.get("deep_work_window") or preferences.get("deep_work_window"),
+        "low_energy_window": profile.get("low_energy_window") or preferences.get("low_energy_window"),
+        "control_preference": profile.get("control_preference"),
+    }
+    return {"task_state": task_state, "user_state": user_state, "context_state": context_state}
+
+
+def candidate_simulation_node(_: Any):
+    def node(state: HumanOSState) -> HumanOSState:
+        plan_patch = state.get("plan_patch", [])
+        runtime_state = state.get("runtime_state", {})
+        profile = state.get("profile", {})
+        tasks = state.get("tasks", [])
+        violations = state.get("violations", [])
+        focus = int(runtime_state.get("focus", 4))
+        energy = int(runtime_state.get("energy", 4))
+        stress = int(runtime_state.get("stress", 4))
+        has_plan = bool(plan_patch)
+        has_violations = bool(violations)
+        high_impact = len(plan_patch) >= 2 or any(item.get("type") in {"fixed_event_conflict", "outside_available_window"} for item in violations)
+
+        joint_state = build_joint_state(tasks, runtime_state, profile)
+        candidate_actions = [
+            {
+                "id": "confirmable_plan",
+                "label": "Generate a confirmable schedule",
+                "impact": "high" if high_impact else "medium",
+                "evidence": [
+                    f"{len(plan_patch)} task blocks can be placed on the calendar",
+                    f"user state focus={focus}, energy={energy}, stress={stress}",
+                ],
+            },
+            {
+                "id": "lightweight_next_step",
+                "label": "Suggest a smaller first step before changing the calendar",
+                "impact": "low",
+                "evidence": [
+                    "mental-state inference is a hypothesis, not a measurement",
+                    "low energy or high stress increases execution risk" if energy <= 3 or stress >= 6 else "low-impact advice preserves user control",
+                ],
+            },
+        ]
+        if has_violations or not has_plan:
+            candidate_actions.append(
+                {
+                    "id": "ask_user",
+                    "label": "Ask the user to clarify before committing schedule changes",
+                    "impact": "low",
+                    "evidence": [f"constraint issues={len(violations)}", f"has_plan={has_plan}"],
+                }
+            )
+
+        transition_simulations = [
+            {
+                "action_id": "confirmable_plan",
+                "predicted_next_state": {
+                    "task_progress": "calendar_ready" if has_plan else "no_calendar_change",
+                    "user_burden": "higher" if high_impact else "medium",
+                    "risk": "needs_confirmation" if high_impact or has_violations else "manageable",
+                },
+                "score": 0.74 if has_plan and not has_violations else 0.52,
+            },
+            {
+                "action_id": "lightweight_next_step",
+                "predicted_next_state": {
+                    "task_progress": "small_progress",
+                    "user_burden": "low",
+                    "risk": "may_not_finish_deadline_task",
+                },
+                "score": 0.68 if energy <= 3 or stress >= 6 else 0.58,
+            },
+        ]
+        if has_violations or not has_plan:
+            transition_simulations.append(
+                {
+                    "action_id": "ask_user",
+                    "predicted_next_state": {
+                        "task_progress": "clarified_before_change",
+                        "user_burden": "low",
+                        "risk": "slower_scheduling",
+                    },
+                    "score": 0.72,
+                }
+            )
+
+        return {
+            "joint_state": joint_state,
+            "candidate_actions": candidate_actions,
+            "transition_simulations": transition_simulations,
+        }
+
+    return node
+
+
 def scheduler_node(_: Any):
     def node(state: HumanOSState) -> HumanOSState:
         tasks = state.get("tasks", [])
@@ -563,18 +683,37 @@ def confirmation_policy_node(_: Any):
         energy = int(runtime_state.get("energy", 4))
         stress = int(runtime_state.get("stress", 4))
         violations = state.get("violations", [])
+        plan_patch = state.get("plan_patch", [])
+        high_impact = len(plan_patch) >= 2 or any(item.get("type") in {"fixed_event_conflict", "outside_available_window"} for item in violations)
         requires_confirmation = (
             profile.get("control_preference") == "confirm_before_reschedule"
             or energy <= 3
             or stress >= 6
             or bool(violations)
+            or high_impact
         )
-        confidence = 0.5 if violations else 0.62 if requires_confirmation else 0.78
+        confidence = 0.5 if violations else 0.66 if requires_confirmation else 0.78
+        confidence_level = "low" if confidence < 0.6 else "medium" if confidence < 0.8 else "high"
+        confidence_detail = {
+            "level": confidence_level,
+            "score": confidence,
+            "is_measurement": False,
+            "evidence": [
+                f"constraint_violations={len(violations)}",
+                f"plan_blocks={len(plan_patch)}",
+                f"user_state focus={runtime_state.get('focus', 4)}, energy={energy}, stress={stress}",
+            ],
+            "policy": "high-impact schedule changes require confirmation; mental-state inference is hypothesis, not measurement",
+        }
         decision = {
             "action": "suggest_plan",
-            "plan_patch": state.get("plan_patch", []),
+            "plan_patch": plan_patch,
+            "joint_state": state.get("joint_state", {}),
+            "candidate_actions": state.get("candidate_actions", []),
+            "transition_simulations": state.get("transition_simulations", []),
             "explanation": state.get("explanation", ""),
             "confidence": confidence,
+            "confidence_detail": confidence_detail,
             "requires_confirmation": requires_confirmation,
             "violations": violations,
             "memory_evidence": state.get("memories", []),
@@ -583,6 +722,7 @@ def confirmation_policy_node(_: Any):
         }
         return {
             "confidence": confidence,
+            "confidence_detail": confidence_detail,
             "requires_confirmation": requires_confirmation,
             "decision": decision,
         }
@@ -611,6 +751,7 @@ def run_schedule_graph(store: Any, user_id: str, payload: dict[str, Any]) -> dic
         builder.add_node("retrieve_memory", retrieve_memory_node(store))
         builder.add_node("schedule", scheduler_node(store))
         builder.add_node("validate_constraints", constraint_validator_node(store))
+        builder.add_node("simulate_candidates", candidate_simulation_node(store))
         builder.add_node("explain", explanation_node(store))
         builder.add_node("confirmation_policy", confirmation_policy_node(store))
         builder.add_node("llm_refine", llm_refinement_node(store))
@@ -619,7 +760,8 @@ def run_schedule_graph(store: Any, user_id: str, payload: dict[str, Any]) -> dic
         builder.add_edge("load_task_state", "retrieve_memory")
         builder.add_edge("retrieve_memory", "schedule")
         builder.add_edge("schedule", "validate_constraints")
-        builder.add_edge("validate_constraints", "explain")
+        builder.add_edge("validate_constraints", "simulate_candidates")
+        builder.add_edge("simulate_candidates", "explain")
         builder.add_edge("explain", "confirmation_policy")
         builder.add_edge("confirmation_policy", "llm_refine")
         builder.add_edge("llm_refine", END)
@@ -636,6 +778,7 @@ def run_schedule_graph(store: Any, user_id: str, payload: dict[str, Any]) -> dic
             retrieve_memory_node,
             scheduler_node,
             constraint_validator_node,
+            candidate_simulation_node,
             explanation_node,
             confirmation_policy_node,
             llm_refinement_node,
