@@ -330,7 +330,87 @@ const I18N = {
     collapseTitle: "收起侧边栏",
     expandTitle: "展开侧边栏",
     prevMonth: "上个月",
-    nextMonth: "下个月"
+    nextMonth: "下个月",
+    profileSetupTitle: "建立学习偏好",
+    profileSetupBody: "先回答几个问题，再进入日历和任务空间。",
+    wizardIdentityTitle: "学习身份",
+    wizardIdentityBody: "先确定你的主要学习场景。",
+    wizardRoleLabel: "你现在主要是哪类学习 / 研究场景？",
+    wizardLearningModeLabel: "你更偏好的学习材料 / 方式",
+    wizardCurrentCoursesLabel: "当前最主要的课程 / 研究任务",
+    wizardToolsLabel: "你现在常用哪些计划工具？",
+    wizardWeeklyTitle: "每周上下文",
+    wizardWeeklyBody: "这些信息用于安排任务，不会每次都问。",
+    wizardAvailableWindowsLabel: "这周通常有哪些可用于学习的时间段？",
+    wizardNearDeadlinesLabel: "最近一周最紧的截止日期 / 承诺",
+    wizardGoalLabel: "接下来两周最重要的学习目标",
+    wizardStateTitle: "状态偏好",
+    wizardStateBody: "帮助系统判断什么时间适合深度任务。",
+    wizardDeepWorkLabel: "一天里最适合做深度任务的时间",
+    wizardLowEnergyLabel: "一天里通常精力较低的时间",
+    wizardSessionLengthLabel: "一次专注学习你通常能持续多久？",
+    wizardControlLabel: "调整计划时你希望系统怎么做？",
+    wizardFailureTitle: "计划失效模式",
+    wizardFailureBody: "用于判断任务为什么会卡住，以及应该如何恢复。",
+    wizardBlockerLegend: "计划最容易失效的地方",
+    wizardPlanningGapLabel: "最近一次“有计划但没有推进”的情况",
+    wizardSupportNeedLabel: "你希望系统主要帮你降低哪种负担？",
+    skipProfile: "稍后设置",
+    prevStep: "上一步",
+    nextStepButton: "下一步",
+    enterWorkspace: "进入工作台",
+    profileHomeTitle: "个人主页",
+    profileHomeBody: "管理初始 Profile、学习偏好和系统确认方式",
+    profileRoleLabel: "身份 / 场景",
+    profileDeepWorkLabel: "深度工作窗口",
+    profileControlLabel: "AI 安排偏好",
+    savePreference: "保存偏好",
+    refillProfile: "重新填写初始问题",
+    initialQuestions: "初始问题",
+    initialQuestionsBody: "用于第一次理解你的计划方式和常见卡点",
+    summaryRole: "学习场景",
+    summaryDeepWork: "深度工作",
+    summaryLowEnergy: "低精力时间",
+    summaryAvailable: "可用时间",
+    summarySession: "专注时长",
+    summaryMode: "学习方式",
+    summaryCurrent: "当前任务",
+    summaryDeadlines: "近期截止",
+    summaryTools: "计划工具",
+    summaryBlockers: "常见卡点",
+    summaryGap: "最近情况",
+    summaryGoal: "两周目标",
+    summarySupport: "主要支持",
+    unfilled: "尚未填写",
+    taskName: "任务名称",
+    dueDate: "截止期",
+    durationLabel: "预计时长",
+    priorityLabel: "优先级",
+    statusLabel: "状态",
+    initialContext: "初始上下文",
+    currentProgress: "当前进展",
+    unresolvedQuestions: "未解决问题",
+    close: "关闭",
+    defaultTaskTitle: "整理 HumanOS related work",
+    defaultTaskDue: "周五 18:00",
+    defaultTaskContext: "需要比较 Motion、TaskSnap、TaskTracer 和 HumanOS 的差异。",
+    defaultNoContext: "暂无上下文。",
+    defaultProgress: "尚未记录当前进展。",
+    defaultNextStep: "回来后先确认任务目标，再选择一个 15-30 分钟内可完成的小步骤。",
+    defaultOpenQuestions: "暂无明确开放问题。",
+    defaultMaterials: "暂无绑定资料；可以在任务上下文中补充文献、链接或文件名。",
+    defaultRecoveryScheduled: "到计划时间后先打开当前资料，再执行下一步。",
+    defaultRecoveryUnscheduled: "安排进日历前先补齐时间、材料和下一步。",
+    noTaskContext: "暂无任务说明。",
+    whyScheduled: "为什么这样排",
+    noSpecificScheduleReason: "当前还没有任务，因此不会生成具体日历安排。",
+    userStateReason: "用户状态",
+    taskAddedReason: "新增任务后，会显示安排依据和是否需要确认。",
+    suitableDeepWorkReason: "当前状态可以执行较完整时间块，但切换前仍需要保存上下文。",
+    conflictReason: "状态和任务负荷存在冲突，所以系统倾向于先拆小、保存上下文或要求确认。",
+    moreEvidenceLater: "后续建议会显示更多记录依据。",
+    defaultAvailableWindow: "08:00-22:00",
+    invalidAvailableWindow: "格式无效，使用默认 08:00-22:00"
   },
   en: {
     appSubtitle: "AI study planning · interruption recovery · personalized scheduling",
@@ -462,7 +542,87 @@ const I18N = {
     collapseTitle: "Collapse sidebar",
     expandTitle: "Expand sidebar",
     prevMonth: "Previous month",
-    nextMonth: "Next month"
+    nextMonth: "Next month",
+    profileSetupTitle: "Set Up Study Preferences",
+    profileSetupBody: "Answer a few questions before entering the calendar and task space.",
+    wizardIdentityTitle: "Study Identity",
+    wizardIdentityBody: "Start with your main study or research context.",
+    wizardRoleLabel: "What type of study or research context are you in?",
+    wizardLearningModeLabel: "Preferred learning material or mode",
+    wizardCurrentCoursesLabel: "Current main course or research task",
+    wizardToolsLabel: "Which planning tools do you currently use?",
+    wizardWeeklyTitle: "Weekly Context",
+    wizardWeeklyBody: "These details guide scheduling so I do not ask every time.",
+    wizardAvailableWindowsLabel: "What time windows are usually available for study this week?",
+    wizardNearDeadlinesLabel: "Tightest deadline or commitment this week",
+    wizardGoalLabel: "Most important study goal for the next two weeks",
+    wizardStateTitle: "State Preferences",
+    wizardStateBody: "Help the system decide when deep tasks fit best.",
+    wizardDeepWorkLabel: "Best time of day for deep work",
+    wizardLowEnergyLabel: "Usual low-energy time of day",
+    wizardSessionLengthLabel: "How long can you usually focus in one session?",
+    wizardControlLabel: "How should the system adjust plans?",
+    wizardFailureTitle: "Plan Failure Patterns",
+    wizardFailureBody: "Used to infer why tasks get stuck and how to resume.",
+    wizardBlockerLegend: "Where plans most often fail",
+    wizardPlanningGapLabel: "Most recent case where you had a plan but did not make progress",
+    wizardSupportNeedLabel: "What burden should the system reduce most?",
+    skipProfile: "Set up later",
+    prevStep: "Back",
+    nextStepButton: "Next",
+    enterWorkspace: "Enter workspace",
+    profileHomeTitle: "Profile",
+    profileHomeBody: "Manage initial profile, study preferences, and confirmation behavior",
+    profileRoleLabel: "Identity / context",
+    profileDeepWorkLabel: "Deep work window",
+    profileControlLabel: "AI scheduling preference",
+    savePreference: "Save preferences",
+    refillProfile: "Refill initial questions",
+    initialQuestions: "Initial Questions",
+    initialQuestionsBody: "Used to understand your planning style and common blockers",
+    summaryRole: "Study context",
+    summaryDeepWork: "Deep work",
+    summaryLowEnergy: "Low-energy time",
+    summaryAvailable: "Available time",
+    summarySession: "Focus length",
+    summaryMode: "Learning mode",
+    summaryCurrent: "Current work",
+    summaryDeadlines: "Near deadlines",
+    summaryTools: "Planning tools",
+    summaryBlockers: "Common blockers",
+    summaryGap: "Recent pattern",
+    summaryGoal: "Two-week goal",
+    summarySupport: "Main support",
+    unfilled: "Not filled",
+    taskName: "Task name",
+    dueDate: "Deadline",
+    durationLabel: "Estimated duration",
+    priorityLabel: "Priority",
+    statusLabel: "Status",
+    initialContext: "Initial context",
+    currentProgress: "Current progress",
+    unresolvedQuestions: "Open questions",
+    close: "Close",
+    defaultTaskTitle: "Review HumanOS related work",
+    defaultTaskDue: "Friday 18:00",
+    defaultTaskContext: "Compare the differences between Motion, TaskSnap, TaskTracer, and HumanOS.",
+    defaultNoContext: "No context yet.",
+    defaultProgress: "No current progress recorded yet.",
+    defaultNextStep: "First confirm the task goal, then choose a small step that can be done in 15-30 minutes.",
+    defaultOpenQuestions: "No explicit open questions yet.",
+    defaultMaterials: "No linked materials yet. Add papers, links, or file names in the task context.",
+    defaultRecoveryScheduled: "At the scheduled time, open the current materials first, then execute the next step.",
+    defaultRecoveryUnscheduled: "Before placing it on the calendar, add the time, materials, and next step.",
+    noTaskContext: "No task description yet.",
+    whyScheduled: "Why this schedule",
+    noSpecificScheduleReason: "There is no task yet, so no concrete calendar block is generated.",
+    userStateReason: "User state",
+    taskAddedReason: "After adding a task, the schedule rationale and confirmation state will appear here.",
+    suitableDeepWorkReason: "The current state can support a fuller work block, but save context before switching.",
+    conflictReason: "State and task load conflict, so the system prefers smaller steps, context saving, or confirmation.",
+    moreEvidenceLater: "Later suggestions will show more evidence from records.",
+    defaultAvailableWindow: "08:00-22:00",
+    invalidAvailableWindow: "Invalid format; using default 08:00-22:00"
   }
 };
 
@@ -474,12 +634,56 @@ function isEnglish() {
   return currentLang === "en";
 }
 
+function setText(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.textContent = value;
+}
+
+function setPlaceholder(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) node.placeholder = value;
+}
+
+function setLabelText(inputId, value) {
+  const input = document.getElementById(inputId);
+  const label = input?.closest("label");
+  if (!label) return;
+  const textNode = Array.from(label.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+  if (textNode) textNode.nodeValue = `${value} `;
+}
+
+function setOptionText(selectId, value, label) {
+  const option = document.querySelector(`#${selectId} option[value="${CSS.escape(value)}"]`);
+  if (option) option.textContent = label;
+}
+
 function priorityLabel(priority) {
   if (!isEnglish()) return priority;
   if (priority === "高") return "High";
   if (priority === "中") return "Medium";
   if (priority === "低") return "Low";
   return priority || "Medium";
+}
+
+function userFacingRole(value) {
+  const zhToEn = {
+    "研究型学生": "Research student",
+    "课程学习学生": "Coursework student",
+    "论文写作阶段": "Thesis writing",
+    "项目开发阶段": "Project development"
+  };
+  const enToZh = Object.fromEntries(Object.entries(zhToEn).map(([zh, en]) => [en, zh]));
+  return isEnglish() ? (zhToEn[value] || value) : (enToZh[value] || value);
+}
+
+function storageRoleValue(value) {
+  const enToZh = {
+    "Research student": "研究型学生",
+    "Coursework student": "课程学习学生",
+    "Thesis writing": "论文写作阶段",
+    "Project development": "项目开发阶段"
+  };
+  return enToZh[value] || value || "研究型学生";
 }
 
 function localizedTurnReply(turn = {}, taskCount = 0) {
@@ -722,6 +926,112 @@ function applyTranslations() {
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
+  setText(".profile-wizard .wizard-head h1", t("profileSetupTitle"));
+  setText(".profile-wizard .wizard-head p", t("profileSetupBody"));
+  setText('.wizard-step[data-step="0"] h2', t("wizardIdentityTitle"));
+  setText('.wizard-step[data-step="0"] .wizard-section-title p', t("wizardIdentityBody"));
+  setText('.wizard-step[data-step="1"] h2', t("wizardWeeklyTitle"));
+  setText('.wizard-step[data-step="1"] .wizard-section-title p', t("wizardWeeklyBody"));
+  setText('.wizard-step[data-step="2"] h2', t("wizardStateTitle"));
+  setText('.wizard-step[data-step="2"] .wizard-section-title p', t("wizardStateBody"));
+  setText('.wizard-step[data-step="3"] h2', t("wizardFailureTitle"));
+  setText('.wizard-step[data-step="3"] .wizard-section-title p', t("wizardFailureBody"));
+  setText(".profile-home-grid .profile-main-card:first-child .panel-head h2", t("profileHomeTitle"));
+  setText(".profile-home-grid .profile-main-card:first-child .panel-head p", t("profileHomeBody"));
+  setText(".profile-home-grid .profile-main-card:nth-child(2) .panel-head h2", t("initialQuestions"));
+  setText(".profile-home-grid .profile-main-card:nth-child(2) .panel-head p", t("initialQuestionsBody"));
+  setText("#profileWizard legend", t("wizardBlockerLegend"));
+  setText("#skipProfileBtn", t("skipProfile"));
+  setText("#wizardPrevBtn", t("prevStep"));
+  setText("#wizardNextBtn", t("nextStepButton"));
+  setText("#saveWizardBtn", t("enterWorkspace"));
+  setText("#saveProfileBtn", t("savePreference"));
+  setText("#openProfileWizardBtn", t("refillProfile"));
+  setText("#deleteTaskBtn", t("deleteTask"));
+  setText("#saveTaskBtn", editingTaskId ? (isEnglish() ? "Save changes" : "保存修改") : (isEnglish() ? "Save" : "保存"));
+  setLabelText("wizardRole", t("wizardRoleLabel"));
+  setLabelText("wizardLearningMode", t("wizardLearningModeLabel"));
+  setLabelText("wizardCurrentCourses", t("wizardCurrentCoursesLabel"));
+  setLabelText("wizardTools", t("wizardToolsLabel"));
+  setLabelText("wizardAvailableWindows", t("wizardAvailableWindowsLabel"));
+  setLabelText("wizardNearDeadlines", t("wizardNearDeadlinesLabel"));
+  setLabelText("wizardGoal", t("wizardGoalLabel"));
+  setLabelText("wizardDeepWork", t("wizardDeepWorkLabel"));
+  setLabelText("wizardLowEnergy", t("wizardLowEnergyLabel"));
+  setLabelText("wizardSessionLength", t("wizardSessionLengthLabel"));
+  setLabelText("wizardControl", t("wizardControlLabel"));
+  setLabelText("wizardPlanningGap", t("wizardPlanningGapLabel"));
+  setLabelText("wizardSupportNeed", t("wizardSupportNeedLabel"));
+  setLabelText("profileRole", t("profileRoleLabel"));
+  setLabelText("profileDeepWork", t("profileDeepWorkLabel"));
+  setLabelText("profileControl", t("profileControlLabel"));
+  setLabelText("newTitle", t("taskName"));
+  setLabelText("newDue", t("dueDate"));
+  setLabelText("newDuration", t("durationLabel"));
+  setLabelText("newPriority", t("priorityLabel"));
+  setLabelText("newStatus", t("statusLabel"));
+  setLabelText("newContext", t("initialContext"));
+  setLabelText("newProgress", t("currentProgress"));
+  setLabelText("newNextStep", t("nextStep"));
+  setLabelText("newOpenQuestions", t("unresolvedQuestions"));
+  if (closeTaskDialogBtn) closeTaskDialogBtn.title = t("close");
+  setPlaceholder("#wizardCurrentCourses", isEnglish() ? "e.g. AI planning papers, interview synthesis, VLA reproduction" : "例如：AI planning论文、用户访谈总结、VLA复现");
+  setPlaceholder("#wizardAvailableWindows", isEnglish() ? "e.g. Mon/Wed 19:00-21:00, Saturday morning" : "例如：周一/三 19:00-21:00，周六上午");
+  setPlaceholder("#wizardNearDeadlines", isEnglish() ? "e.g. send to teammate by Friday, finish draft by Sunday" : "例如：周五前发给队友，周日完成初稿");
+  setPlaceholder("#wizardGoal", isEnglish() ? "e.g. finish reading planning papers and organize the research gap." : "例如：读完 planning 相关论文并整理 gap。");
+  setPlaceholder("#wizardPlanningGap", isEnglish() ? "e.g. It was on the calendar, but at the scheduled time I did not know where to start." : "例如：明明写在日历里，但到时间后不知道从哪里开始。");
+  setPlaceholder("#newProgress", isEnglish() ? "What has been done? Where did the material stop?" : "已经完成了什么？当前材料停在哪里？");
+  setPlaceholder("#newNextStep", isEnglish() ? "What should be the first step when you return?" : "回来后第一步应该做什么？");
+  setPlaceholder("#newOpenQuestions", isEnglish() ? "What questions, dependencies, or uncertainties remain?" : "还有哪些问题、依赖或不确定性？");
+  const defaultPairs = [
+    ["newTitle", I18N.zh.defaultTaskTitle, I18N.en.defaultTaskTitle],
+    ["newDue", I18N.zh.defaultTaskDue, I18N.en.defaultTaskDue],
+    ["newContext", I18N.zh.defaultTaskContext, I18N.en.defaultTaskContext]
+  ];
+  defaultPairs.forEach(([id, zhValue, enValue]) => {
+    const node = document.getElementById(id);
+    if (!node || editingTaskId) return;
+    if (isEnglish() && node.value === zhValue) node.value = enValue;
+    if (!isEnglish() && node.value === enValue) node.value = zhValue;
+  });
+  setOptionText("wizardRole", "研究型学生", isEnglish() ? "Research student" : "研究型学生");
+  setOptionText("wizardRole", "课程学习学生", isEnglish() ? "Coursework student" : "课程学习学生");
+  setOptionText("wizardRole", "论文写作阶段", isEnglish() ? "Thesis writing" : "论文写作阶段");
+  setOptionText("wizardRole", "项目开发阶段", isEnglish() ? "Project development" : "项目开发阶段");
+  setOptionText("wizardLearningMode", "reading_writing", learningModeLabel("reading_writing"));
+  setOptionText("wizardLearningMode", "visual", learningModeLabel("visual"));
+  setOptionText("wizardLearningMode", "discussion", learningModeLabel("discussion"));
+  setOptionText("wizardLearningMode", "practice", learningModeLabel("practice"));
+  setOptionText("wizardLearningMode", "mixed", learningModeLabel("mixed"));
+  setOptionText("wizardSessionLength", "25", isEnglish() ? "About 25 minutes" : "约 25 分钟");
+  setOptionText("wizardSessionLength", "45", isEnglish() ? "About 45 minutes" : "约 45 分钟");
+  setOptionText("wizardSessionLength", "60", isEnglish() ? "About 60 minutes" : "约 60 分钟");
+  setOptionText("wizardSessionLength", "90", isEnglish() ? "About 90 minutes" : "约 90 分钟");
+  setOptionText("wizardControl", "confirm_before_reschedule", isEnglish() ? "Ask me before changing plans" : "调整前需要我确认");
+  setOptionText("wizardControl", "allow_low_risk_auto", isEnglish() ? "Auto-place low-risk suggestions" : "低风险建议可以自动放进日历");
+  setOptionText("profileControl", "confirm_before_reschedule", isEnglish() ? "Ask before changing plans" : "调整计划前需要确认");
+  setOptionText("profileControl", "allow_low_risk_auto", isEnglish() ? "Auto-suggest low-risk changes" : "低风险可自动建议");
+  setOptionText("wizardSupportNeed", "clarify_next_action", supportNeedLabel("clarify_next_action"));
+  setOptionText("wizardSupportNeed", "schedule_feasible_plan", supportNeedLabel("schedule_feasible_plan"));
+  setOptionText("wizardSupportNeed", "recover_after_interruption", supportNeedLabel("recover_after_interruption"));
+  setOptionText("wizardSupportNeed", "balance_load_and_rest", supportNeedLabel("balance_load_and_rest"));
+  setOptionText("newPriority", "高", isEnglish() ? "High" : "高");
+  setOptionText("newPriority", "中", isEnglish() ? "Medium" : "中");
+  setOptionText("newPriority", "低", isEnglish() ? "Low" : "低");
+  setOptionText("newStatus", "queued", isEnglish() ? "Queued" : "待安排");
+  setOptionText("newStatus", "scheduled", isEnglish() ? "Scheduled" : "已安排");
+  setOptionText("newStatus", "running", isEnglish() ? "Running" : "进行中");
+  setOptionText("newStatus", "paused", isEnglish() ? "Paused" : "暂停");
+  setOptionText("newStatus", "completed", isEnglish() ? "Completed" : "完成");
+  document.querySelectorAll('input[name="wizardBlocker"]').forEach((input) => {
+    const blockerText = {
+      "任务不够清楚": isEnglish() ? "Task is not clear enough" : "任务不够清楚",
+      "状态太累或焦虑": isEnglish() ? "Too tired or anxious" : "状态太累或焦虑",
+      "被外部事情打断": isEnglish() ? "Interrupted by external events" : "被外部事情打断",
+      "切换后回不来": isEnglish() ? "Hard to return after switching" : "切换后回不来"
+    }[input.value];
+    if (input.nextSibling) input.nextSibling.nodeValue = ` ${blockerText}`;
+  });
   if (langToggleBtn) langToggleBtn.textContent = isEnglish() ? "中文" : "EN";
   if (chatInput) {
     chatInput.placeholder = isEnglish()
@@ -736,6 +1046,7 @@ function applyTranslations() {
   }
   if (miniPrevBtn) miniPrevBtn.title = t("prevMonth");
   if (miniNextBtn) miniNextBtn.title = t("nextMonth");
+  if (backendStatus?.textContent) setBackendStatus(backendStatus.textContent, backendOnline);
   const weekdays = isEnglish()
     ? ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
     : ["日", "一", "二", "三", "四", "五", "六"];
@@ -834,10 +1145,6 @@ function setAuthMode(mode) {
     : (isEnglish() ? "Sign in" : "登录并进入");
   authPassword.autocomplete = isRegister ? "new-password" : "current-password";
   authError.textContent = "";
-}
-
-function userFacingRole(role) {
-  return role === "research_student" ? "研究型学生" : role;
 }
 
 function addChatMessage(sender, title, text) {
@@ -1165,7 +1472,35 @@ async function api(path, options = {}) {
 }
 
 function setBackendStatus(text, online = backendOnline) {
-  backendStatus.textContent = text;
+  const statusText = {
+    "正在进入": isEnglish() ? "Signing in" : "正在进入",
+    "Signing in": isEnglish() ? "Signing in" : "正在进入",
+    "注册成功，请完善偏好": isEnglish() ? "Registered. Complete preferences" : "注册成功，请完善偏好",
+    "Registered. Complete preferences": isEnglish() ? "Registered. Complete preferences" : "注册成功，请完善偏好",
+    "登录成功": isEnglish() ? "Signed in" : "登录成功",
+    "Signed in": isEnglish() ? "Signed in" : "登录成功",
+    "认证失败": isEnglish() ? "Authentication failed" : "认证失败",
+    "Authentication failed": isEnglish() ? "Authentication failed" : "认证失败",
+    "已同步": isEnglish() ? "Synced" : "已同步",
+    "Synced": isEnglish() ? "Synced" : "已同步",
+    "请先登录": isEnglish() ? "Sign in first" : "请先登录",
+    "Sign in first": isEnglish() ? "Sign in first" : "请先登录",
+    "暂时离线": isEnglish() ? "Offline" : "暂时离线",
+    "Offline": isEnglish() ? "Offline" : "暂时离线",
+    "偏好已更新": isEnglish() ? "Preferences updated" : "偏好已更新",
+    "Preferences updated": isEnglish() ? "Preferences updated" : "偏好已更新",
+    "偏好已保存": isEnglish() ? "Preferences saved" : "偏好已保存",
+    "Preferences saved": isEnglish() ? "Preferences saved" : "偏好已保存",
+    "稍后设置": isEnglish() ? "Set up later" : "稍后设置",
+    "Set up later": isEnglish() ? "Set up later" : "稍后设置",
+    "任务已更新": isEnglish() ? "Task updated" : "任务已更新",
+    "Task updated": isEnglish() ? "Task updated" : "任务已更新",
+    "任务已保存": isEnglish() ? "Task saved" : "任务已保存",
+    "Task saved": isEnglish() ? "Task saved" : "任务已保存",
+    "保存失败": isEnglish() ? "Save failed" : "保存失败",
+    "Save failed": isEnglish() ? "Save failed" : "保存失败"
+  }[text] || text;
+  backendStatus.textContent = statusText;
   backendStatus.style.color = online ? "var(--green)" : "var(--muted)";
 }
 
@@ -1222,22 +1557,22 @@ function normalizeContextWindow(task) {
   const progress = saved.progress
     || checkpointText(task, ["进展", "当前"])
     || task.context
-    || "尚未记录当前进展。";
+    || t("defaultProgress");
   const nextStep = saved.nextStep
     || saved.next_step
     || checkpointText(task, ["下一步", "继续"])
-    || "回来后先确认任务目标，再选择一个 15-30 分钟内可完成的小步骤。";
+    || t("defaultNextStep");
   const openQuestions = saved.openQuestions
     || saved.open_questions
     || checkpointText(task, ["未解决", "问题", "卡点"])
-    || "暂无明确开放问题。";
+    || t("defaultOpenQuestions");
   const materials = saved.materials
     || saved.references
     || saved.links
-    || "暂无绑定资料；可以在任务上下文中补充文献、链接或文件名。";
+    || t("defaultMaterials");
   const recoveryCue = saved.recoveryCue
     || saved.recovery_cue
-    || (task.slot ? "到计划时间后先打开当前资料，再执行下一步。" : "安排进日历前先补齐时间、材料和下一步。");
+    || (task.slot ? t("defaultRecoveryScheduled") : t("defaultRecoveryUnscheduled"));
 
   return { progress, nextStep, openQuestions, materials, recoveryCue };
 }
@@ -1272,61 +1607,61 @@ function renderProfileSummary() {
   const preferences = currentProfile.task_preferences || {};
   const tools = Array.isArray(preferences.planning_tools) && preferences.planning_tools.length
     ? preferences.planning_tools.join(" / ")
-    : "尚未填写";
+    : t("unfilled");
   const blockers = Array.isArray(currentProfile.blocker_patterns) && currentProfile.blocker_patterns.length
-    ? currentProfile.blocker_patterns.join(" / ")
-    : "尚未填写";
+    ? currentProfile.blocker_patterns.map((item) => blockerLabel(item)).join(" / ")
+    : t("unfilled");
   profileSummary.innerHTML = `
     <div class="summary-row">
-      <span>学习场景</span>
+      <span>${t("summaryRole")}</span>
       <strong>${userFacingRole(currentProfile.role || "研究型学生")}</strong>
     </div>
     <div class="summary-row">
-      <span>深度工作</span>
+      <span>${t("summaryDeepWork")}</span>
       <strong>${currentProfile.deep_work_window || "09:00-11:30"}</strong>
     </div>
     <div class="summary-row">
-      <span>低精力时间</span>
+      <span>${t("summaryLowEnergy")}</span>
       <strong>${currentProfile.low_energy_window || "14:00-15:30"}</strong>
     </div>
     <div class="summary-row">
-      <span>可用时间</span>
-      <strong>${preferences.available_windows || "尚未填写"}</strong>
+      <span>${t("summaryAvailable")}</span>
+      <strong>${displayAvailableWindow(preferences.available_windows)}</strong>
     </div>
     <div class="summary-row">
-      <span>专注时长</span>
-      <strong>${preferences.preferred_session_minutes ? `${preferences.preferred_session_minutes} 分钟` : "尚未填写"}</strong>
+      <span>${t("summarySession")}</span>
+      <strong>${preferences.preferred_session_minutes ? `${preferences.preferred_session_minutes} ${t("minutes")}` : t("unfilled")}</strong>
     </div>
     <div class="summary-row">
-      <span>学习方式</span>
+      <span>${t("summaryMode")}</span>
       <strong>${learningModeLabel(preferences.learning_mode)}</strong>
     </div>
     <div class="summary-row">
-      <span>当前任务</span>
-      <strong>${preferences.current_courses || "尚未填写"}</strong>
+      <span>${t("summaryCurrent")}</span>
+      <strong>${preferences.current_courses || t("unfilled")}</strong>
     </div>
     <div class="summary-row">
-      <span>近期截止</span>
-      <strong>${preferences.near_deadlines || "尚未填写"}</strong>
+      <span>${t("summaryDeadlines")}</span>
+      <strong>${preferences.near_deadlines || t("unfilled")}</strong>
     </div>
     <div class="summary-row">
-      <span>计划工具</span>
+      <span>${t("summaryTools")}</span>
       <strong>${tools}</strong>
     </div>
     <div class="summary-row">
-      <span>常见卡点</span>
+      <span>${t("summaryBlockers")}</span>
       <strong>${blockers}</strong>
     </div>
     <div class="summary-row">
-      <span>最近情况</span>
-      <strong>${preferences.planning_gap || "尚未填写"}</strong>
+      <span>${t("summaryGap")}</span>
+      <strong>${preferences.planning_gap || t("unfilled")}</strong>
     </div>
     <div class="summary-row">
-      <span>两周目标</span>
-      <strong>${preferences.short_term_goal || "尚未填写"}</strong>
+      <span>${t("summaryGoal")}</span>
+      <strong>${preferences.short_term_goal || t("unfilled")}</strong>
     </div>
     <div class="summary-row">
-      <span>主要支持</span>
+      <span>${t("summarySupport")}</span>
       <strong>${supportNeedLabel(preferences.support_need)}</strong>
     </div>
   `;
@@ -1344,22 +1679,51 @@ function planningTools() {
 }
 
 function learningModeLabel(value) {
-  return {
-    reading_writing: "阅读和写作",
-    visual: "图表 / 视频 / 可视化",
-    discussion: "讨论 / 讲给别人听",
-    practice: "做题 / 实操 / 项目推进",
-    mixed: "混合方式"
-  }[value] || "尚未填写";
+  const labels = isEnglish()
+    ? {
+        reading_writing: "Reading and writing",
+        visual: "Diagrams / video / visualization",
+        discussion: "Discussion / teaching others",
+        practice: "Practice / implementation / projects",
+        mixed: "Mixed"
+      }
+    : {
+        reading_writing: "阅读和写作",
+        visual: "图表 / 视频 / 可视化",
+        discussion: "讨论 / 讲给别人听",
+        practice: "做题 / 实操 / 项目推进",
+        mixed: "混合方式"
+      };
+  return labels[value] || t("unfilled");
 }
 
 function supportNeedLabel(value) {
-  return {
-    clarify_next_action: "把任务变成下一步行动",
-    schedule_feasible_plan: "安排可执行时间表",
-    recover_after_interruption: "中断后帮我接回来",
-    balance_load_and_rest: "平衡负荷和休息"
-  }[value] || "尚未填写";
+  const labels = isEnglish()
+    ? {
+        clarify_next_action: "Turn tasks into next actions",
+        schedule_feasible_plan: "Create a feasible schedule",
+        recover_after_interruption: "Help me resume after interruptions",
+        balance_load_and_rest: "Balance load and rest"
+      }
+    : {
+        clarify_next_action: "把任务变成下一步行动",
+        schedule_feasible_plan: "安排可执行时间表",
+        recover_after_interruption: "中断后帮我接回来",
+        balance_load_and_rest: "平衡负荷和休息"
+      };
+  return labels[value] || t("unfilled");
+}
+
+function blockerLabel(value) {
+  const labels = isEnglish()
+    ? {
+        "任务不够清楚": "Task is not clear enough",
+        "状态太累或焦虑": "Too tired or anxious",
+        "被外部事情打断": "Interrupted by external events",
+        "切换后回不来": "Hard to return after switching"
+      }
+    : {};
+  return labels[value] || value;
 }
 
 async function loadBackendState() {
@@ -1412,7 +1776,7 @@ async function saveProfileToBackend() {
   currentProfile = {
     ...currentProfile,
     user_id: currentUserId(),
-    role: profileRole.value.trim() || "研究型学生",
+    role: storageRoleValue(profileRole.value.trim()),
     deep_work_window: profileDeepWork.value.trim() || "09:00-11:30",
     control_preference: profileControl.value
   };
@@ -1436,7 +1800,7 @@ async function saveWizardProfile(markCompleted = true) {
   currentProfile = {
     ...currentProfile,
     user_id: currentUserId(),
-    role: wizardRole.value,
+    role: storageRoleValue(wizardRole.value),
     deep_work_window: wizardDeepWork.value.trim() || "09:00-11:30",
     low_energy_window: wizardLowEnergy.value.trim() || "14:00-15:30",
     control_preference: wizardControl.value,
@@ -1444,7 +1808,7 @@ async function saveWizardProfile(markCompleted = true) {
     task_preferences: {
       ...(currentProfile.task_preferences || {}),
       onboarding_completed: markCompleted,
-      available_windows: wizardAvailableWindows.value.trim(),
+      available_windows: normalizedAvailableWindow(wizardAvailableWindows.value),
       preferred_session_minutes: Number(wizardSessionLength.value) || 45,
       learning_mode: wizardLearningMode.value,
       current_courses: wizardCurrentCourses.value.trim(),
@@ -2074,6 +2438,21 @@ function formatHour(value) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function hasTimeRangeText(value = "") {
+  return /(\d{1,2}[:：]\d{2}|\d{1,2}\s*(点|时|am|pm))\s*(-|–|—|~|至|到)\s*(\d{1,2}[:：]\d{2}|\d{1,2}\s*(点|时|am|pm))/i.test(String(value || ""));
+}
+
+function normalizedAvailableWindow(value = "") {
+  const clean = String(value || "").trim();
+  return !clean || hasTimeRangeText(clean) ? clean : t("defaultAvailableWindow");
+}
+
+function displayAvailableWindow(value = "") {
+  const clean = String(value || "").trim();
+  if (!clean) return t("unfilled");
+  return hasTimeRangeText(clean) ? clean : t("invalidAvailableWindow");
+}
+
 function renderActiveTask() {
   const task = selectedTask();
   if (!task) {
@@ -2092,7 +2471,7 @@ function renderActiveTask() {
   const scheduleText = block ? `${formatHour(block.start)}-${formatHour(block.end)}` : t("unscheduled");
   activeTask.innerHTML = `
     <h3>${escapeHtml(task.title)}</h3>
-    <p>${escapeHtml(task.context || "暂无任务说明。")}</p>
+    <p>${escapeHtml(task.context || t("noTaskContext"))}</p>
     <div class="task-meta" style="margin-top:12px">
       <span class="tag ${priorityClass(task.priority)}">${escapeHtml(priorityLabel(task.priority))}${t("prioritySuffix")}</span>
       <span class="tag">${task.duration} ${t("minutes")}</span>
@@ -2243,11 +2622,11 @@ function renderReasoning() {
   if (!task) {
     reasoning.innerHTML = `
       <div class="reason-card">
-        <h3>为什么这样排</h3>
+        <h3>${t("whyScheduled")}</h3>
         <ul>
-          <li>当前还没有任务，因此不会生成具体日历安排。</li>
-          <li>用户状态：专注 ${focus}/7，精力 ${energy}/7，压力 ${stress}/7。</li>
-          <li>新增任务后，会显示安排依据和是否需要确认。</li>
+          <li>${t("noSpecificScheduleReason")}</li>
+          <li>${t("userStateReason")}: ${t("focus")} ${focus}/7, ${t("energy")} ${energy}/7, ${t("stress")} ${stress}/7.</li>
+          <li>${t("taskAddedReason")}</li>
         </ul>
       </div>
     `;
@@ -2256,14 +2635,14 @@ function renderReasoning() {
   const node = schedulingNodeForTask(task);
   reasoning.innerHTML = `
     <div class="reason-card">
-      <h3>为什么这样排</h3>
+      <h3>${t("whyScheduled")}</h3>
       <ul>
-        <li>当前任务处于 ${statusLabel(task)}，优先级为 ${task.priority}，截止期为 ${task.due}。</li>
-        <li>调度映射：当前对应 ${node.title} / ${node.zh}，因此系统关注的是${node.zh === "等待调度" ? "是否进入日历执行窗口" : node.zh === "上下文切换" ? "保存与恢复上下文" : node.zh === "正在执行" ? "执行证据和切换风险" : "状态迁移和用户确认"}。</li>
-        <li>用户状态：专注 ${focus}/7，精力 ${energy}/7，压力 ${stress}/7。</li>
-        <li>${energy <= 3 || stress >= 6 ? "状态和任务负荷存在冲突，所以系统倾向于先拆小、保存上下文或要求确认。" : "当前状态可以执行较完整时间块，但切换前仍需要保存上下文。"}</li>
-        <li>你的学习场景：${userFacingRole(currentProfile.role || "研究型学生")}，适合专注的时间 ${currentProfile.deep_work_window || "09:00-11:30"}。</li>
-        <li>${lastDecision?.memory_evidence?.length ? `参考了 ${lastDecision.memory_evidence.length} 条相似的过往情况。` : "后续建议会显示更多记录依据。"}</li>
+        <li>${isEnglish() ? `Current task is ${statusLabel(task)}, priority ${priorityLabel(task.priority)}, deadline ${task.due}.` : `当前任务处于 ${statusLabel(task)}，优先级为 ${task.priority}，截止期为 ${task.due}。`}</li>
+        <li>${isEnglish() ? `Scheduling map: ${node.title}. The system focuses on calendar fit, context saving, execution risk, and confirmation.` : `调度映射：当前对应 ${node.title} / ${node.zh}，因此系统关注的是${node.zh === "等待调度" ? "是否进入日历执行窗口" : node.zh === "上下文切换" ? "保存与恢复上下文" : node.zh === "正在执行" ? "执行证据和切换风险" : "状态迁移和用户确认"}。`}</li>
+        <li>${t("userStateReason")}: ${t("focus")} ${focus}/7, ${t("energy")} ${energy}/7, ${t("stress")} ${stress}/7.</li>
+        <li>${energy <= 3 || stress >= 6 ? t("conflictReason") : t("suitableDeepWorkReason")}</li>
+        <li>${isEnglish() ? `Study context: ${userFacingRole(currentProfile.role || "研究型学生")}; deep work window ${currentProfile.deep_work_window || "09:00-11:30"}.` : `你的学习场景：${userFacingRole(currentProfile.role || "研究型学生")}，适合专注的时间 ${currentProfile.deep_work_window || "09:00-11:30"}。`}</li>
+        <li>${lastDecision?.memory_evidence?.length ? (isEnglish() ? `Used ${lastDecision.memory_evidence.length} similar past records.` : `参考了 ${lastDecision.memory_evidence.length} 条相似的过往情况。`) : t("moreEvidenceLater")}</li>
       </ul>
     </div>
   `;
@@ -2342,12 +2721,12 @@ function openTaskDialog(task = null) {
   taskDialogTitle.textContent = task ? (isEnglish() ? "Edit Task" : "编辑任务") : (isEnglish() ? "Add Academic Task" : "新增学术任务");
   saveTaskBtn.textContent = task ? (isEnglish() ? "Save changes" : "保存修改") : (isEnglish() ? "Save" : "保存");
   deleteTaskBtn.classList.toggle("hidden", !task);
-  document.getElementById("newTitle").value = task?.title || "整理 HumanOS related work";
-  document.getElementById("newDue").value = task?.due || "周五 18:00";
+  document.getElementById("newTitle").value = task?.title || t("defaultTaskTitle");
+  document.getElementById("newDue").value = task?.due || t("defaultTaskDue");
   document.getElementById("newDuration").value = task?.duration || 90;
   document.getElementById("newPriority").value = task?.priority || "中";
   document.getElementById("newStatus").value = task?.status || "queued";
-  document.getElementById("newContext").value = task?.context || "需要比较 Motion、TaskSnap、TaskTracer 和 HumanOS 的差异。";
+  document.getElementById("newContext").value = task?.context || t("defaultTaskContext");
   const windowData = normalizeContextWindow(task || {});
   document.getElementById("newProgress").value = task ? windowData.progress : "";
   document.getElementById("newNextStep").value = task ? windowData.nextStep : "";
@@ -2357,12 +2736,12 @@ function openTaskDialog(task = null) {
 }
 
 function taskPayloadFromDialog(id, previous = {}) {
-  const initialContext = document.getElementById("newContext").value.trim() || "暂无上下文。";
+  const initialContext = document.getElementById("newContext").value.trim() || t("defaultNoContext");
   const progress = document.getElementById("newProgress").value.trim();
   const nextStep = document.getElementById("newNextStep").value.trim();
   const openQuestions = document.getElementById("newOpenQuestions").value.trim();
-  const due = document.getElementById("newDue").value.trim() || "未设置";
-  const title = document.getElementById("newTitle").value.trim() || "未命名任务";
+  const due = document.getElementById("newDue").value.trim() || t("notSet");
+  const title = document.getElementById("newTitle").value.trim() || (isEnglish() ? "Untitled task" : "未命名任务");
   const duration = inferDurationMinutesFromText(`${title} ${initialContext}`) || Number(document.getElementById("newDuration").value) || 60;
   const slotStart = parseDueStartHour(due);
   const inferredTaskType = inferDialogTaskType(title, initialContext, due, previous);
@@ -2382,10 +2761,10 @@ function taskPayloadFromDialog(id, previous = {}) {
     contextWindow: {
       ...(previous.contextWindow || {}),
       progress: progress || initialContext,
-      nextStep: nextStep || "回来后先确认任务目标，再选择一个 15-30 分钟内可完成的小步骤。",
-      openQuestions: openQuestions || "暂无明确开放问题。",
-      materials: previous.contextWindow?.materials || "暂无绑定资料；可以在任务上下文中补充文献、链接或文件名。",
-      recoveryCue: previous.contextWindow?.recoveryCue || "安排进日历前先补齐时间、材料和下一步。"
+      nextStep: nextStep || t("defaultNextStep"),
+      openQuestions: openQuestions || t("defaultOpenQuestions"),
+      materials: previous.contextWindow?.materials || t("defaultMaterials"),
+      recoveryCue: previous.contextWindow?.recoveryCue || t("defaultRecoveryUnscheduled")
     },
     slot: shouldRefreshSlot
       ? { ...previous.slot, start: slotStart, end: slotStart + duration / 60 }
