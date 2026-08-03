@@ -3990,7 +3990,7 @@ button,
   height: auto !important;
   max-height: none;
   overflow-y: auto;
-  padding-bottom: 116px;
+  padding-bottom: 24px;
   border: 0;
   border-radius: 0;
   background: #fff;
@@ -4044,9 +4044,7 @@ button,
 
 .pending-schedule {
   flex: none;
-  position: absolute;
-  left: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
   z-index: 30;
   display: grid;
@@ -4061,6 +4059,23 @@ button,
   border-radius: 0;
   background: #eef6ff;
   box-shadow: none;
+}
+
+.pending-schedule .button-row {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 168px;
+}
+
+.pending-schedule .button-row button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.pending-schedule .button-row .primary {
+  min-width: 108px;
 }
 
 .pending-schedule.hidden {
