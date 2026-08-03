@@ -16,7 +16,6 @@ import re
 import sqlite3
 import time
 import uuid
-from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -25,27 +24,28 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
-DB_PATH = DATA_DIR / "humanos.db"
+DB_PATH = Path(os.environ.get("HUMANOS_DB_PATH", "").strip()) if os.environ.get("HUMANOS_DB_PATH", "").strip() else DATA_DIR / "humanos.db"
 VECTOR_DIMS = 64
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-CHAT_CONTEXT_TURN_LIMIT = 50
 
 
-def load_env_file(path: Path = ROOT / ".env") -> None:
-    if not path.exists():
+def load_local_env() -> None:
+    """Load backend/.env without adding a dotenv dependency."""
+    env_path = ROOT / ".env"
+    if not env_path.exists():
         return
-    for line in path.read_text().splitlines():
-        line = line.strip()
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
-        value = value.strip().strip("\"'")
+        value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
 
 
-load_env_file()
+load_local_env()
 
 
 def now_ms() -> int:
@@ -104,88 +104,11 @@ def infer_duration_minutes(text: str) -> int | None:
     if chinese_match:
         amount = chinese_amounts[chinese_match.group(1)]
         return int(amount * 60) if chinese_match.group(2) == "小时" else int(amount)
-    match = re.search(r"(\d+)\s*(?:个\s*)?(?:-|–|—)?\s*(分钟|minutes?|mins?|min|小时|hours?|hrs?|h)", text, re.I)
+    match = re.search(r"(\d+)\s*(个)?\s*(分钟|min|小时|h)", text, re.I)
     if not match:
         return None
     amount = int(match.group(1))
-    return amount * 60 if match.group(2).lower() in {"小时", "hour", "hours", "hr", "hrs", "h"} else amount
-
-
-ENGLISH_WEEKDAY = r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
-ENGLISH_RELATIVE_DAY = rf"(?:today|tonight|tomorrow|tmr|tmrw|{ENGLISH_WEEKDAY})"
-ENGLISH_TIME_WORD = r"(?:morning|afternoon|evening|night|noon|\d{1,2}(?::\d{2})\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))"
-ENGLISH_WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-CHINESE_WEEKDAY_NAMES = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-
-
-def english_day_time_in_text(text: str) -> str:
-    clean = str(text or "")
-    day = re.search(ENGLISH_RELATIVE_DAY, clean, re.I)
-    time_match = re.search(ENGLISH_TIME_WORD, clean, re.I)
-    if day and time_match:
-        if day.start() <= time_match.start():
-            return f"{day.group(0)} {time_match.group(0)}"
-        return f"{time_match.group(0)} {day.group(0)}"
-    if day:
-        return day.group(0)
-    if re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I):
-        every = re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", clean, re.I)
-        return every.group(0) if every else "every day"
-    if time_match and re.search(r"\b(am|pm|morning|afternoon|evening|night|noon)\b", time_match.group(0), re.I):
-        return time_match.group(0)
-    return ""
-
-
-def chinese_day_time_in_text(text: str) -> str:
-    clean = str(text or "")
-    day = r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])"
-    clock = r"((?:早上|上午|中午|下午|晚上)?\s*\d{1,2}\s*(?:[:：]\s*\d{2}|点|时))"
-    day_clock = re.search(rf"{day}\s*{clock}", clean)
-    if day_clock:
-        return re.sub(r"\s+", "", day_clock.group(0))
-    clock_day = re.search(rf"{clock}\s*{day}", clean)
-    if clock_day:
-        return re.sub(r"\s+", "", clock_day.group(0))
-    day_period = re.search(rf"{day}\s*(早上|上午|中午|下午|晚上)", clean)
-    if day_period:
-        return re.sub(r"\s+", "", day_period.group(0))
-    recurring = re.search(r"每天\s*(早上|上午|中午|下午|晚上)", clean)
-    if recurring:
-        return recurring.group(0)
-    return ""
-
-
-def recurring_due_values(segment: str, due: str) -> list[str]:
-    text = str(segment or "")
-    due_text = str(due or "")
-    english = re.search(r"\bevery\s+(morning|afternoon|evening|night|day)\b", f"{text} {due_text}", re.I)
-    chinese = re.search(r"每天\s*(早上|上午|中午|下午|晚上)?", f"{text} {due_text}")
-    if not english and not chinese:
-        return [due]
-
-    if english:
-        period = english.group(1).lower()
-        if period == "day":
-            period = "afternoon"
-        day_names = ENGLISH_WEEKDAY_NAMES
-        period_time = period
-    else:
-        period = chinese.group(1) if chinese and chinese.group(1) else "下午"
-        day_names = CHINESE_WEEKDAY_NAMES
-        period_time = {
-            "早上": "09:00",
-            "上午": "09:00",
-            "中午": "12:00",
-            "下午": "14:00",
-            "晚上": "19:00",
-        }.get(period, "14:00")
-
-    today = date.today()
-    values = []
-    for offset in range(7):
-        current = today + timedelta(days=offset)
-        values.append(f"{day_names[current.weekday()]} {period_time}")
-    return values
+    return amount * 60 if match.group(3).lower() in {"小时", "h"} else amount
 
 
 def chat_completion(messages: list[dict], temperature: float = 0.2) -> object | None:
@@ -227,47 +150,24 @@ def safe_duration_minutes(value: object, fallback: int = 60) -> int:
 
 
 def parse_clock_hour(value: str, inherited_period: str = "") -> float | None:
-    raw = str(value or "")
-    text = re.sub(r"\s+", "", raw)
+    text = re.sub(r"\s+", "", str(value or ""))
     period_match = re.search(r"(早上|上午|中午|下午|晚上)", text)
-    english_period_match = re.search(r"\b(morning|afternoon|evening|night|noon)\b", raw, re.I)
-    period = period_match.group(1) if period_match else (english_period_match.group(1).lower() if english_period_match else inherited_period)
-    colon_match = re.search(r"(\d{1,2})[:：](\d{2})(am|pm)?", text, re.I)
+    period = period_match.group(1) if period_match else inherited_period
+    colon_match = re.search(r"(\d{1,2})[:：](\d{2})", text)
     if colon_match:
         hour = int(colon_match.group(1))
         minute = int(colon_match.group(2))
-        meridiem = (colon_match.group(3) or "").lower()
     else:
-        hour_match = re.search(r"(\d{1,2})(点|时|am|pm)", text, re.I)
+        hour_match = re.search(r"(\d{1,2})(点|时)", text)
         if not hour_match:
-            if period == "noon":
-                return 12.0
-            if period in {"morning"}:
-                return 9.0
-            if period in {"afternoon"}:
-                return 14.0
-            if period in {"evening", "night"}:
-                return 19.0
             return None
         hour = int(hour_match.group(1))
         minute = 0
-        meridiem = (hour_match.group(2) or "").lower()
-    if meridiem == "pm" and hour < 12:
+    if period in {"下午", "晚上"} and hour < 12:
         hour += 12
-    if meridiem == "am" and hour == 12:
-        hour = 0
-    if period in {"下午", "晚上", "afternoon", "evening", "night"} and hour < 12:
-        hour += 12
-    if period in {"中午", "noon"} and hour < 11:
+    if period == "中午" and hour < 11:
         hour += 12
     return hour + minute / 60
-
-
-def normalize_calendar_hour(hour: float, duration_minutes: int = 60) -> float:
-    duration = max(duration_minutes, 15) / 60
-    if hour >= 24:
-        return max(0.0, 24.0 - duration)
-    return max(0.0, hour)
 
 
 def format_clock_hour(hour: float) -> str:
@@ -308,7 +208,7 @@ def today_label() -> str:
 
 class Store:
     def __init__(self, path: Path) -> None:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
         self.init_db()
 
@@ -329,6 +229,8 @@ class Store:
                   control_preference TEXT NOT NULL,
                   blocker_patterns TEXT NOT NULL,
                   task_preferences TEXT NOT NULL,
+                  weekly_context_json TEXT NOT NULL DEFAULT '{}',
+                  learned_patterns_json TEXT NOT NULL DEFAULT '[]',
                   created_at INTEGER NOT NULL,
                   updated_at INTEGER NOT NULL
                 );
@@ -360,6 +262,11 @@ class Store:
                   reentry_cost TEXT NOT NULL,
                   slot_json TEXT,
                   checkpoints_json TEXT NOT NULL,
+                  demand_json TEXT NOT NULL DEFAULT '{}',
+                  execution_json TEXT NOT NULL DEFAULT '{}',
+                  resource_modality_json TEXT NOT NULL DEFAULT '[]',
+                  parallelizable INTEGER NOT NULL DEFAULT 0,
+                  expected_difficulty INTEGER,
                   created_at INTEGER NOT NULL,
                   updated_at INTEGER NOT NULL
                 );
@@ -372,6 +279,9 @@ class Store:
                   stress INTEGER NOT NULL,
                   mood INTEGER,
                   attention_residue TEXT,
+                  emotion TEXT,
+                  readiness TEXT,
+                  daily_note TEXT,
                   created_at INTEGER NOT NULL
                 );
 
@@ -417,6 +327,29 @@ class Store:
                   task_ids_json TEXT NOT NULL,
                   created_at INTEGER NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS execution_feedback (
+                  id TEXT PRIMARY KEY,
+                  user_id TEXT NOT NULL,
+                  task_id TEXT NOT NULL,
+                  trigger TEXT NOT NULL,
+                  task_evaluation_json TEXT NOT NULL,
+                  state_evaluation_json TEXT NOT NULL,
+                  recommendation_evaluation_json TEXT NOT NULL,
+                  created_at INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS state_transitions (
+                  id TEXT PRIMARY KEY,
+                  user_id TEXT NOT NULL,
+                  task_id TEXT,
+                  before_state_json TEXT NOT NULL,
+                  action_json TEXT NOT NULL,
+                  predicted_state_json TEXT NOT NULL,
+                  actual_state_json TEXT NOT NULL,
+                  outcome_json TEXT NOT NULL,
+                  created_at INTEGER NOT NULL
+                );
                 """
             )
             columns = {
@@ -425,6 +358,34 @@ class Store:
             }
             if "context_window_json" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN context_window_json TEXT NOT NULL DEFAULT '{}'")
+            task_migrations = {
+                "demand_json": "TEXT NOT NULL DEFAULT '{}'",
+                "execution_json": "TEXT NOT NULL DEFAULT '{}'",
+                "resource_modality_json": "TEXT NOT NULL DEFAULT '[]'",
+                "parallelizable": "INTEGER NOT NULL DEFAULT 0",
+                "expected_difficulty": "INTEGER",
+            }
+            for name, definition in task_migrations.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
+            profile_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(profiles)").fetchall()
+            }
+            profile_migrations = {
+                "weekly_context_json": "TEXT NOT NULL DEFAULT '{}'",
+                "learned_patterns_json": "TEXT NOT NULL DEFAULT '[]'",
+            }
+            for name, definition in profile_migrations.items():
+                if name not in profile_columns:
+                    conn.execute(f"ALTER TABLE profiles ADD COLUMN {name} {definition}")
+            runtime_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(runtime_states)").fetchall()
+            }
+            runtime_migrations = {"emotion": "TEXT", "readiness": "TEXT", "daily_note": "TEXT"}
+            for name, definition in runtime_migrations.items():
+                if name not in runtime_columns:
+                    conn.execute(f"ALTER TABLE runtime_states ADD COLUMN {name} {definition}")
 
     def password_hash(self, password: str, salt: str) -> str:
         return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
@@ -486,22 +447,39 @@ class Store:
             return existing
         profile = {
             "user_id": user_id,
-            "role": "研究型学生",
+            "role": "硕士生",
             "deep_work_window": "09:00-11:30",
             "low_energy_window": "14:00-15:30",
-            "control_preference": "confirm_before_reschedule",
+            "control_preference": "ai_proposed_user_editable",
             "blocker_patterns": ["task_ambiguity", "fatigue", "context_loss"],
+            "weekly_context": {
+                "week_of": today_label(),
+                "weekly_available_windows": "",
+                "fixed_events": [],
+                "weekly_goal": "",
+                "current_tasks": "",
+                "temporary_constraints": [],
+                "other_commitments": [],
+                "task_deadlines": [],
+                "weekly_note": "",
+                "keep_buffer": True,
+                "buffer_preference": "保留可调整时间与无任务时段",
+            },
+            "learned_patterns": [],
             "task_preferences": {
                 "writing": "morning_deep_work",
                 "admin": "low_energy_slots",
                 "reading": "moderate_energy",
                 "onboarding_completed": False,
-                "planning_tools": [],
                 "planning_gap": "",
                 "common_blockers": [],
-                "recovery_preference": "",
-                "available_windows": "",
                 "preferred_session_minutes": 45,
+                "rest_between_tasks_minutes": 10,
+                "day_rhythm": {
+                    "morning_energy": 6,
+                    "afternoon_energy": 4,
+                    "evening_energy": 5,
+                },
                 "learning_mode": "reading_writing",
                 "current_courses": "",
                 "near_deadlines": "",
@@ -538,6 +516,8 @@ class Store:
             "control_preference": row["control_preference"],
             "blocker_patterns": from_json(row["blocker_patterns"], []),
             "task_preferences": from_json(row["task_preferences"], {}),
+            "weekly_context": from_json(row["weekly_context_json"], {}),
+            "learned_patterns": from_json(row["learned_patterns_json"], []),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -556,13 +536,19 @@ class Store:
             ),
             "control_preference": profile.get(
                 "control_preference",
-                current.get("control_preference") if current else "confirm_before_reschedule",
+                current.get("control_preference") if current else "ai_proposed_user_editable",
             ),
             "blocker_patterns": profile.get(
                 "blocker_patterns", current.get("blocker_patterns") if current else []
             ),
             "task_preferences": profile.get(
                 "task_preferences", current.get("task_preferences") if current else {}
+            ),
+            "weekly_context": profile.get(
+                "weekly_context", current.get("weekly_context") if current else {}
+            ),
+            "learned_patterns": profile.get(
+                "learned_patterns", current.get("learned_patterns") if current else []
             ),
         }
         with self.connect() as conn:
@@ -571,9 +557,10 @@ class Store:
                 INSERT INTO profiles (
                   user_id, role, deep_work_window, low_energy_window,
                   control_preference, blocker_patterns, task_preferences,
+                  weekly_context_json, learned_patterns_json,
                   created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                   role=excluded.role,
                   deep_work_window=excluded.deep_work_window,
@@ -581,6 +568,8 @@ class Store:
                   control_preference=excluded.control_preference,
                   blocker_patterns=excluded.blocker_patterns,
                   task_preferences=excluded.task_preferences,
+                  weekly_context_json=excluded.weekly_context_json,
+                  learned_patterns_json=excluded.learned_patterns_json,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -591,6 +580,8 @@ class Store:
                     data["control_preference"],
                     as_json(data["blocker_patterns"]),
                     as_json(data["task_preferences"]),
+                    as_json(data["weekly_context"]),
+                    as_json(data["learned_patterns"]),
                     current["created_at"] if current else timestamp,
                     timestamp,
                 ),
@@ -624,204 +615,52 @@ class Store:
             return "coding"
         return "general"
 
-    def infer_schedule_task_type(self, payload: dict) -> str:
-        explicit = payload.get("task_type") or payload.get("taskType")
-        due = str(payload.get("due") or payload.get("deadline") or "")
-        context = str(payload.get("context") or "")
-        text = f"{due} {context}"
-        has_clock = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
-        fixed_words = re.search(r"(会议|开会|开.*会|组会|上课|面试|吃饭|午饭|午餐|晚饭|早餐|appointment|meeting|lunch|dinner|breakfast|meal|exam|examination)", text, re.I)
-        deadline_words = re.search(r"(截止|ddl|deadline|之前|前|due|\bby\b|before)", text, re.I)
-        if explicit in {"flexible_task", "fixed_event", "recovery_task"}:
-            if explicit == "fixed_event" and deadline_words and not fixed_words:
-                return "flexible_task"
-            return explicit
-        if has_clock and (fixed_words or not deadline_words):
-            return "fixed_event"
-        return "flexible_task"
-
-    def local_task_dimensions(self, task: dict, chat_context: dict | None = None) -> dict:
-        text = f"{task.get('title', '')} {task.get('context', '')}".lower()
-        explicit_load = task.get("cognitive_load")
-        explicit_ambiguity = task.get("ambiguity")
-        high_load_terms = ["论文", "写", "coding", "代码", "研究", "阅读", "planning", "复现", "实验", "分析"]
-        low_load_terms = ["取", "拿", "买", "发邮件", "报销", "预约", "整理文件"]
-        dependency_terms = ["等", "等待", "反馈", "队友", "老师", "导师", "审批", "回复", "确认"]
-        collaboration_terms = ["会议", "开会", "组会", "讨论", "队友", "同学", "老师", "导师", "team", "meeting"]
-        unclear_terms = ["看看", "处理", "搞一下", "弄", "完善", "研究一下", "不清楚", "卡住", "想想"]
-        resistance_terms = ["不想", "拖延", "焦虑", "压力", "烦", "累", "害怕", "开始不了"]
-
-        if explicit_load in {"high", "medium", "low"}:
-            cognitive_load = explicit_load
-        elif any(term in text for term in high_load_terms):
-            cognitive_load = "high"
-        elif any(term in text for term in low_load_terms):
-            cognitive_load = "low"
-        else:
-            cognitive_load = "medium"
-
-        if explicit_ambiguity in {"high", "medium", "low"}:
-            ambiguity = explicit_ambiguity
-        elif any(term in text for term in unclear_terms):
-            ambiguity = "high"
-        elif len(str(task.get("title", ""))) <= 4:
-            ambiguity = "medium"
-        else:
-            ambiguity = "low"
-
-        dependency_status = "waiting_external" if any(term in text for term in dependency_terms) else "self_contained"
-        collaboration_required = any(term in text for term in collaboration_terms)
-        emotional_resistance = "high" if any(term in text for term in resistance_terms) else "medium" if ambiguity == "high" else "low"
-        duration = safe_duration_minutes(task.get("estimated_duration") or task.get("duration"), 60)
-        splittable = cognitive_load == "high" or duration >= 90
-        clarity = "low" if ambiguity == "high" else "medium" if ambiguity == "medium" else "high"
-        recovery_cost = "high" if cognitive_load == "high" or ambiguity == "high" else "medium" if collaboration_required else "low"
-
+    def infer_task_demand(self, payload: dict, task_type: str) -> dict:
+        """Estimate task demand as an inspectable hypothesis, not a measurement."""
+        expected = payload.get("expected_difficulty")
+        expected = int(expected) if str(expected or "").isdigit() else None
+        features = payload.get("task_features") or {}
+        evidence = []
+        score = 1
+        if task_type in {"writing", "coding", "research"}:
+            score += 2
+            evidence.append(f"task_type={task_type}")
+        elif task_type == "reading":
+            score += 1
+            evidence.append("reading requires sustained attention")
+        if expected is not None:
+            score += 2 if expected >= 6 else 1 if expected >= 4 else 0
+            evidence.append(f"user expected_difficulty={expected}/7")
+        for key in ("uncertainty", "error_cost", "precision_requirement", "external_dependency", "substeps"):
+            value = features.get(key)
+            if value in {"high", True} or (isinstance(value, int) and value >= 4):
+                score += 1
+                evidence.append(f"{key}={value}")
+        level = "high" if score >= 4 else "medium" if score >= 2 else "low"
+        confidence = "medium" if expected is None else "high"
         return {
-            "cognitive_load": cognitive_load,
-            "ambiguity": ambiguity,
-            "clarity": clarity,
-            "splittable": splittable,
-            "recovery_cost": recovery_cost,
-            "dependency_status": dependency_status,
-            "collaboration_required": collaboration_required,
-            "emotional_resistance": emotional_resistance,
-            "confidence": 0.68 if ambiguity == "high" else 0.78,
-            "source": "local_rules",
+            "estimated_cognitive_load": level,
+            "expected_difficulty": expected,
+            "task_features": features,
+            "evidence": evidence or ["limited task description"],
+            "confidence_level": confidence,
+            "source": "user_self_report" if expected is not None else "ai_inference",
+            "user_confirmed": expected is not None,
         }
 
-    def task_dimension_agent(self, task: dict, chat_context: dict | None = None) -> dict:
-        fallback = self.local_task_dimensions(task, chat_context)
-        llm_result = chat_completion(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "你是 HumanOS 的 Task Dimension Agent。只输出 JSON。"
-                        "判断任务用于调度的认知维度，不要输出面向用户的话。"
-                        "不要改变任务标题、时间和截止日期。"
-                        "所有用户心理/状态判断都只是 hypothesis, not measurement；"
-                        "必须给出 evidence 和 confidence_level，不能只给一个看似精确的小数。"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": as_json(
-                        {
-                            "task": {
-                                "title": task.get("title"),
-                                "context": task.get("context"),
-                                "task_type": task.get("task_type") or task.get("taskType"),
-                                "deadline": task.get("deadline") or task.get("due"),
-                                "estimated_duration": task.get("estimated_duration") or task.get("duration"),
-                            },
-                            "recent_context": chat_context or {},
-                            "schema": {
-                                "cognitive_load": "high/medium/low",
-                                "ambiguity": "high/medium/low",
-                                "clarity": "high/medium/low",
-                                "splittable": "true/false",
-                                "recovery_cost": "high/medium/low",
-                                "dependency_status": "self_contained/waiting_external/blocked_by_unknown",
-                                "collaboration_required": "true/false",
-                                "emotional_resistance": "high/medium/low",
-                                "confidence": "0.0-1.0",
-                                "confidence_level": "high/medium/low",
-                                "evidence": ["支持这些判断的文本或上下文线索"],
-                            },
-                        }
-                    ),
-                },
-            ]
-        )
-        if not isinstance(llm_result, dict):
-            return fallback
-        dimensions = {**fallback}
-        allowed_levels = {"high", "medium", "low"}
-        for key in ["cognitive_load", "ambiguity", "clarity", "recovery_cost", "emotional_resistance"]:
-            value = str(llm_result.get(key) or "")
-            if value in allowed_levels:
-                dimensions[key] = value
-        dependency = str(llm_result.get("dependency_status") or "")
-        if dependency in {"self_contained", "waiting_external", "blocked_by_unknown"}:
-            dimensions["dependency_status"] = dependency
-        for key in ["splittable", "collaboration_required"]:
-            if key in llm_result:
-                dimensions[key] = bool(llm_result[key])
-        try:
-            dimensions["confidence"] = round(float(llm_result.get("confidence", dimensions["confidence"])), 2)
-        except (TypeError, ValueError):
-            pass
-        if llm_result.get("confidence_level") in {"high", "medium", "low"}:
-            dimensions["confidence_level"] = llm_result["confidence_level"]
-        if isinstance(llm_result.get("evidence"), list):
-            dimensions["evidence"] = llm_result["evidence"][:5]
-        dimensions["source"] = "deepseek"
-        return dimensions
-
     def create_task(self, user_id: str, payload: dict) -> dict:
+        task_id = payload.get("id") or new_id("task")
         title = payload.get("title", "未命名任务")
         context = payload.get("context", "")
         task_type = payload.get("type") or self.infer_task_type(title, context)
-        schedule_task_type = self.infer_schedule_task_type(payload)
-        deadline = payload.get("deadline") or payload.get("due")
-        if not payload.get("id"):
-            normalized_title = re.sub(r"\s+", " ", str(title)).strip().lower()
-            normalized_due = re.sub(r"\s+", " ", str(payload.get("due") or deadline or "")).strip().lower()
-            with self.connect() as conn:
-                duplicate = conn.execute(
-                    """
-                    SELECT * FROM tasks
-                    WHERE user_id=? AND lower(trim(title))=? AND lower(trim(coalesce(due, '')))=?
-                      AND status NOT IN ('completed', 'terminated')
-                    ORDER BY
-                      CASE WHEN slot_json IS NOT NULL AND slot_json != 'null' THEN 0 ELSE 1 END,
-                      updated_at DESC
-                    LIMIT 1
-                    """,
-                    (user_id, normalized_title, normalized_due),
-                ).fetchone()
-            if duplicate:
-                self.log_event(user_id, "task_deduplicated", {"task_id": duplicate["id"], "title": title})
-                return self.task_row(duplicate)
-        task_id = payload.get("id") or new_id("task")
         priority = payload.get("priority", "中")
-        duration = infer_duration_minutes(f"{title} {context}") or int(
-            payload.get("estimated_duration") or payload.get("duration", 60)
-        )
+        duration = infer_duration_minutes(f"{title} {context}") or int(payload.get("duration", 60))
         status = payload.get("status", "queued")
-        dimensions = self.task_dimension_agent(
-            {
-                **payload,
-                "title": title,
-                "context": context,
-                "type": task_type,
-                "task_type": schedule_task_type,
-                "deadline": deadline,
-                "estimated_duration": duration,
-            },
-            payload.get("chat_context"),
-        )
-        cognitive_load = dimensions.get(
-            "cognitive_load",
-            payload.get("cognitive_load") or ("high" if task_type in {"writing", "coding"} else "medium"),
-        )
-        ambiguity = dimensions.get(
-            "ambiguity",
-            payload.get("ambiguity") or ("medium" if task_type in {"writing", "research"} else "low"),
-        )
+        demand = payload.get("task_demand") or self.infer_task_demand(payload, task_type)
+        cognitive_load = payload.get("cognitive_load") or demand["estimated_cognitive_load"]
+        ambiguity = payload.get("ambiguity", "medium" if task_type in {"writing", "research"} else "low")
         switch_cost = payload.get("switch_cost", "high" if cognitive_load == "high" else "medium")
-        reentry_cost = payload.get("reentry_cost") or dimensions.get("recovery_cost") or switch_cost
-        context_window = payload.get("contextWindow") or payload.get("context_window") or {}
-        if not isinstance(context_window, dict):
-            context_window = {}
-        context_window = {
-            **context_window,
-            "taskType": schedule_task_type,
-            "deadline": deadline,
-            "estimatedDuration": duration,
-            "dimensions": dimensions,
-        }
+        reentry_cost = payload.get("reentry_cost", switch_cost)
         timestamp = now_ms()
         with self.connect() as conn:
             conn.execute(
@@ -829,27 +668,40 @@ class Store:
                 INSERT INTO tasks (
                   id, user_id, title, type, due, duration, priority, status,
                   context, context_window_json, cognitive_load, ambiguity, switch_cost, reentry_cost,
-                  slot_json, checkpoints_json, created_at, updated_at
+                  slot_json, checkpoints_json, demand_json, execution_json,
+                  resource_modality_json, parallelizable, expected_difficulty,
+                  created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
                     user_id,
                     title,
                     task_type,
-                    payload.get("due") or deadline,
+                    payload.get("due"),
                     duration,
                     priority,
                     status,
                     context,
-                    as_json(context_window),
+                    as_json(payload.get("contextWindow") or payload.get("context_window") or {}),
                     cognitive_load,
                     ambiguity,
                     switch_cost,
                     reentry_cost,
                     as_json(payload.get("slot")),
                     as_json(payload.get("checkpoints", [])),
+                    as_json(demand),
+                    as_json(payload.get("execution") or {
+                        "original_estimate_minutes": duration,
+                        "accumulated_actual_minutes": 0,
+                        "remaining_duration_minutes": duration,
+                        "progress_percent": 0,
+                        "sessions": [],
+                    }),
+                    as_json(payload.get("resource_modality", [])),
+                    int(bool(payload.get("parallelizable", False))),
+                    demand.get("expected_difficulty"),
                     timestamp,
                     timestamp,
                 ),
@@ -860,27 +712,19 @@ class Store:
             source_id=task_id,
             task_id=task_id,
             text=f"Task: {title}. Type: {task_type}. Context: {context}. Priority: {priority}.",
-            metadata={
-                "task_type": task_type,
-                "schedule_task_type": schedule_task_type,
-                "deadline": deadline,
-                "priority": priority,
-                "status": status,
-                "dimensions": dimensions,
-            },
+            metadata={"task_type": task_type, "priority": priority, "status": status},
         )
         self.log_event(user_id, "task_created", {"task_id": task_id, "title": title})
-        return self.get_task(task_id, user_id=user_id) or {}
+        return self.get_task(task_id) or {}
 
     def parse_tasks_from_text(self, user_id: str, text: str, chat_context: dict | None = None) -> list[dict]:
         clean = text.strip()
         if not clean:
             raise ValueError("task text is required")
-        expected_count = self.estimated_task_count(clean)
         explicit_schedule_tasks = self.parse_explicit_schedule_lines(user_id, clean)
         if explicit_schedule_tasks:
             return explicit_schedule_tasks
-        if self.looks_like_compact_multi_task_list(clean) or self.english_task_segments(clean):
+        if self.looks_like_compact_multi_task_list(clean):
             return self.local_parse_tasks_from_text(user_id, clean)
         llm_result = chat_completion(
             [
@@ -888,13 +732,8 @@ class Store:
                     "role": "system",
                     "content": (
                         "你是 HumanOS 的任务解析 agent。只输出 JSON。"
-                        "从用户中文或英文输入中提取所有学习任务、固定事件和生活安排。"
-                        "任务标题和 context 必须使用用户输入的主要语言；英文输入保留英文，不要翻译成中文。"
-                        "如果一句话包含多个时间点或多个动作，必须拆成多个任务。"
-                        "区分 flexible_task 和 fixed_event："
-                        "有固定会议、上课、吃饭、考试、明确开始时间且必须按时发生的是 fixed_event；"
-                        "只需要在截止日前完成、可由系统安排执行窗口的是 flexible_task。"
-                        "不要输出解释。"
+                        "从用户中文输入中提取所有学习任务。"
+                        "如果一句话包含多个时间点或多个动作，必须拆成多个任务。不要输出解释。"
                     ),
                 },
                 {
@@ -908,15 +747,9 @@ class Store:
                                 "tasks": [
                                     {
                                         "title": "任务标题，不要包含其他任务",
-                                        "task_type": "flexible_task/fixed_event/recovery_task",
-                                        "deadline": "flexible_task 的截止日期或目标日期；如果用户说今天/明天/周几，需要保留相对日期",
-                                        "due": "兼容字段；fixed_event 写开始时间，flexible_task 写 deadline",
-                                        "estimated_duration": "预计分钟数，数字；没有说时默认 60",
-                                        "duration": "兼容字段，等同 estimated_duration",
+                                        "due": "目标时间；如果用户说今天/明天/周几，需要保留相对日期和具体时间",
+                                        "duration": "预计分钟数，数字；没有说时默认 60",
                                         "priority": "高/中/低",
-                                        "cognitive_load": "high/medium/low",
-                                        "ambiguity": "high/medium/low",
-                                        "splittable": "true/false",
                                         "context": "只保留该任务相关背景",
                                     }
                                 ]
@@ -933,76 +766,23 @@ class Store:
                 raw_tasks = llm_result.get("tasks") if isinstance(llm_result.get("tasks"), list) else [llm_result]
             else:
                 raw_tasks = []
-            payloads = []
+            tasks = []
             for item in raw_tasks[:8]:
                 if not isinstance(item, dict):
                     continue
-                explicit_duration = infer_duration_minutes(clean) if len(raw_tasks) == 1 else None
-                parsed_duration = safe_duration_minutes(
-                    item.get("estimated_duration") or item.get("duration"), explicit_duration or 60
-                )
-                if explicit_duration and parsed_duration == 60:
-                    parsed_duration = explicit_duration
                 payload = {
                     "title": item.get("title") or clean[:60],
-                    "task_type": item.get("task_type") or item.get("taskType"),
-                    "deadline": item.get("deadline") or item.get("due") or "未设置",
-                    "due": item.get("due") or item.get("deadline") or "未设置",
-                    "estimated_duration": parsed_duration,
-                    "duration": parsed_duration,
+                    "due": item.get("due") or "未设置",
+                    "duration": safe_duration_minutes(item.get("duration"), 60),
                     "priority": item.get("priority") if item.get("priority") in {"高", "中", "低"} else "中",
-                    "cognitive_load": item.get("cognitive_load") if item.get("cognitive_load") in {"high", "medium", "low"} else None,
-                    "ambiguity": item.get("ambiguity") if item.get("ambiguity") in {"high", "medium", "low"} else None,
                     "context": item.get("context") or clean,
                 }
-                payload = {key: value for key, value in payload.items() if value is not None}
                 payload["parser"] = "deepseek"
-                payloads.append(payload)
-            explicit_duration = infer_duration_minutes(clean)
-            if explicit_duration and len(payloads) == 1:
-                payloads[0]["estimated_duration"] = explicit_duration
-                payloads[0]["duration"] = explicit_duration
-            if expected_count > 1 and len(payloads) < expected_count:
-                self.log_event(
-                    user_id,
-                    "task_parse_fallback",
-                    {
-                        "reason": "llm_under_split",
-                        "expected_count": expected_count,
-                        "llm_count": len(payloads),
-                        "text": clean[:500],
-                    },
-                )
-                return self.local_parse_tasks_from_text(user_id, clean)
-            if payloads:
-                tasks = [self.create_task(user_id, payload) for payload in payloads]
+                tasks.append(self.create_task(user_id, payload))
+            if tasks:
                 return tasks
 
         return self.local_parse_tasks_from_text(user_id, clean)
-
-    def estimated_task_count(self, text: str) -> int:
-        compact = re.sub(r"\s+", "", text)
-        readable = re.sub(r"\s+", " ", text).strip()
-        if not compact:
-            return 0
-        clock_count = len(re.findall(r"(?:早上|上午|中午|下午|晚上)?\d{1,2}(?:[:：]\d{2}|点|时)|\d{1,2}(?::\d{2})?\s*(?:am|pm)", readable, re.I))
-        action_segments = [
-            part.strip("，,。；;、")
-            for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;|、|\b(?:i\s+)?also\s+need\s+to\b|\band\s+(?=I\s+need\s+to|I\s+also\s+need\s+to|review|read|write|finish|complete|prepare|go|study|submit)\b)", readable, flags=re.I)
-            if part.strip("，,。；;、")
-        ]
-        action_count = sum(
-            1
-            for part in action_segments
-            if re.search(
-                r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发|"
-                r"\b(finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)",
-                part,
-                re.I,
-            )
-        )
-        serial_count = len(re.findall(r"第[一二两三四五六七八九\d]+个", compact))
-        return max(clock_count, action_count, serial_count, 1)
 
     def looks_like_compact_multi_task_list(self, text: str) -> bool:
         parts = [
@@ -1015,39 +795,10 @@ class Store:
         action_count = sum(
             1
             for part in parts
-            if re.search(
-                r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|组会|讨论|取|拿|办|买|发|"
-                r"\b(finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)",
-                part,
-                re.I,
-            )
+            if re.search(r"(复习|学习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|开会|会议|讨论)", part)
         )
         followup_markers = re.search(r"第[一二三四五六七八九\d]+|这个|那个|都是|每个", text)
         return action_count >= 2 and not followup_markers
-
-    def english_task_segments(self, text: str) -> list[str]:
-        if not re.search(r"[A-Za-z]", text):
-            return []
-        normalized = re.sub(r"\s+", " ", text).strip()
-        normalized = re.sub(r"^\s*this week\s+", "", normalized, flags=re.I)
-        normalized = re.sub(r"\bI also need to\b", "||", normalized, flags=re.I)
-        normalized = re.sub(r"\bI need to\b", "||", normalized, flags=re.I)
-        normalized = re.sub(r"\bI have to\b", "||", normalized, flags=re.I)
-        normalized = re.sub(r"\bI plan to\b", "||", normalized, flags=re.I)
-        normalized = re.sub(
-            r"\band\s+(?=(?:I\s+)?(?:also\s+)?(?:need|have|plan)\s+to\b|review\b|read\b|write\b|finish\b|complete\b|prepare\b|go\b|study\b|submit\b)",
-            "||",
-            normalized,
-            flags=re.I,
-        )
-        normalized = re.sub(
-            r",\s*(?=(?:review|read|write|finish|complete|prepare|go|study|submit)\b)",
-            "||",
-            normalized,
-            flags=re.I,
-        )
-        parts = [re.sub(r"^\s*to\s+", "", part.strip(" .,!;:"), flags=re.I) for part in normalized.split("||") if part.strip(" .,!;:")]
-        return parts if len(parts) > 1 else []
 
     def parse_explicit_schedule_lines(self, user_id: str, text: str) -> list[dict]:
         clock = r"(?:(?:早上|上午|中午|下午|晚上)\s*)?\d{1,2}\s*(?:[:：]\s*\d{2}|点|时)"
@@ -1086,10 +837,7 @@ class Store:
                     user_id,
                     {
                         "title": title[:42],
-                        "task_type": "fixed_event",
-                        "deadline": f"{day} {format_clock_hour(start)}",
                         "due": f"{day} {format_clock_hour(start)}",
-                        "estimated_duration": duration,
                         "duration": duration,
                         "priority": "高" if any(word in title for word in ["重要", "紧急", "ddl", "deadline"]) else "中",
                         "context": clean_line,
@@ -1102,31 +850,16 @@ class Store:
 
     def local_parse_tasks_from_text(self, user_id: str, text: str) -> list[dict]:
         clean = text.strip()
-        time_word = rf"(((早上|上午|中午|下午|晚上)\s*)?\d{{1,2}}\s*(点|时)|\d{{1,2}}[:：]\d{{2}}\s*(?:am|pm)?|\d{{1,2}}\s*(?:am|pm)|morning|afternoon|evening|night|noon)"
-        relative_day = rf"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天]|today|tonight|tomorrow|tmr|tmrw|{ENGLISH_WEEKDAY}|every\s+(?:morning|afternoon|evening|night|day))"
-        english_segments = self.english_task_segments(clean)
-        connector_segments = english_segments or [
+        time_word = r"(((早上|上午|中午|下午|晚上)\s*)?\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2})"
+        relative_day = r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])"
+        connector_segments = [
             part.strip(" ，,。；;、")
             for part in re.split(r"(?:然后|最后|再|接着|之后|，|,|。|；|;)", clean)
             if part.strip(" ，,。；;、")
         ]
-        action_pattern = (
-            r"(会议|开会|开.*会|组会|学习|复习|写|读|阅读|总结|整理|完善|完成|处理|准备|提交|看|做|备战|取|拿|办|买|发|"
-            r"\b(?:finish|complete|write|read|review|study|prepare|design|eat|meet|meeting|submit)\b)"
-        )
-        merged_segments: list[str] = []
-        for part in connector_segments:
-            has_action = re.search(action_pattern, part)
-            has_date_or_clock = re.search(relative_day, part, re.I) or re.search(time_word, part, re.I)
-            has_duration_only = infer_duration_minutes(part) and not has_action and not has_date_or_clock
-            if has_duration_only and merged_segments:
-                merged_segments[-1] = f"{merged_segments[-1]}，{part}"
-            else:
-                merged_segments.append(part)
-        connector_segments = merged_segments
-        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:{action_pattern})[^，。；;]*)")
+        segment_pattern = re.compile(rf"((?:{relative_day})?\s*(?:{time_word})?[^，。；;、]*(?:会议|开会|学习|复习|写|读|整理|完成|处理|准备|提交|看|做)[^，。；;]*)")
         segments = [match.group(1).strip(" ，,。；;、") for match in segment_pattern.finditer(clean)]
-        if connector_segments and len(connector_segments) >= len(segments):
+        if len(connector_segments) > len(segments):
             segments = connector_segments
         if not segments:
             segments = [clean]
@@ -1141,14 +874,12 @@ class Store:
             period_match = re.search(r"(早上|上午|中午|下午|晚上)", segment)
             if period_match:
                 last_period = period_match.group(0)
-            english_due = english_day_time_in_text(segment)
-            chinese_due = chinese_day_time_in_text(segment)
-            due_match = re.search(rf"({relative_day}\s*{time_word}|{time_word}\s*{relative_day}|{time_word}|{relative_day})", segment, re.I)
-            due = english_due or chinese_due or (due_match.group(0) if due_match else "未设置")
+            due_match = re.search(rf"({relative_day}\s*{time_word}|{time_word}|{relative_day})", segment)
+            due = due_match.group(0) if due_match else "未设置"
             separate_time_match = re.search(time_word, segment)
             if due != "未设置" and day_match and separate_time_match and not re.search(time_word, due):
                 due = f"{day_match.group(0)}{separate_time_match.group(0)}"
-            if due != "未设置" and last_day and not english_due and not re.search(relative_day, due, re.I):
+            if due != "未设置" and last_day and not re.search(relative_day, due):
                 due = f"{last_day}{due}"
             if due != "未设置" and last_period and re.search(r"\d{1,2}\s*(点|时)", due) and not re.search(r"(早上|上午|中午|下午|晚上)", due):
                 due = re.sub(r"(\d{1,2}\s*(点|时))", rf"{last_period}\1", due, count=1)
@@ -1159,50 +890,20 @@ class Store:
                 any(word in segment for word in ["紧急", "重要", "ddl", "deadline", "优先级高", "高优先级"])
                 or re.search(r"优先级\s*[:：]?\s*高", segment)
             ) else "中"
-            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的|吧|之前|以前|前)", "", segment)
-            title_text = re.sub(r"(这周|本周|我需要|我要|我在|我|在|并且|而且|以及)", "", title_text)
-            title_text = re.sub(
-                r"\b(i|we|the|a|an|to|at|on|by|before|after|need|needs|have|has|plan|planned|want|"
-                r"finish|complete|do|work|work on|eat)\b",
-                " ",
-                title_text,
-                flags=re.I,
+            title_text = re.sub(rf"({relative_day}|{time_word}|然后|最后|先|需要|进行|我们的|我们|这个|的)", "", segment)
+            title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
+            task = self.create_task(
+                user_id,
+                {
+                    "title": title_text[:42],
+                    "due": due,
+                    "duration": duration,
+                    "priority": priority,
+                    "context": segment,
+                },
             )
-            title_text = re.sub(
-                r"\b(january|february|march|april|may|june|july|august|september|october|november|december|"
-                r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b\s*\d{1,2}",
-                " ",
-                title_text,
-                flags=re.I,
-            )
-            title_text = re.sub(r"\d+\s*(个)?(?:-|–|—)?\s*(分钟|minutes?|mins?|min|小时|hours?|hrs?|h)", "", title_text, flags=re.I)
-            title_text = re.sub(r"(大概|大约|预计|左右)", "", title_text)
-            if re.search(r"[A-Za-z]", title_text):
-                title_text = re.sub(r"\s+", " ", title_text).strip(" ，,。；;、") or segment
-            else:
-                title_text = re.sub(r"\s+", "", title_text).strip("，,。；;、") or segment
-            if re.search(r"[A-Za-z]", title_text):
-                title_text = re.sub(r"\b(?:this week|by|before|after|for|every|today|tonight|tomorrow|tmr|tmrw|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|night|noon)\b", " ", title_text, flags=re.I)
-                title_text = re.sub(r"\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}[:：]\d{2}", " ", title_text, flags=re.I)
-                title_text = re.sub(r"\b(?:am|pm|minutes?|mins?|hours?|hrs?)\b", " ", title_text, flags=re.I)
-                title_text = re.sub(r"\s+", " ", title_text).strip(" .,!;:") or segment
-            for due_value in recurring_due_values(segment, due):
-                is_recurring_time = due_value != due
-                task = self.create_task(
-                    user_id,
-                    {
-                        "title": title_text[:42],
-                        "task_type": "fixed_event" if is_recurring_time else self.infer_schedule_task_type({"due": due_value, "context": segment}),
-                        "deadline": due_value,
-                        "due": due_value,
-                        "estimated_duration": duration,
-                        "duration": duration,
-                        "priority": priority,
-                        "context": segment,
-                    },
-                )
-                task["parser"] = "local_fallback"
-                tasks.append(task)
+            task["parser"] = "local_fallback"
+            tasks.append(task)
         return tasks
 
     def parse_task_from_text(self, user_id: str, text: str) -> dict:
@@ -1280,141 +981,6 @@ class Store:
         self.log_event(user_id, "behavior_language_features", {"text": clean, "features": llm_result})
         return llm_result
 
-    def chat_turn_confidence(self, response: dict, chat_context: dict) -> float:
-        confidence = 0.55
-        features = response.get("features") or {}
-        intent = response.get("intent") or features.get("intent")
-        tasks = response.get("tasks") or []
-        if intent and intent != "other":
-            confidence += 0.12
-        if tasks:
-            confidence += 0.14
-            missing_penalty = 0.0
-            for task in tasks:
-                due = str(task.get("deadline") or task.get("due") or "")
-                duration = int(task.get("estimated_duration") or task.get("duration") or 0)
-                if due in {"", "未设置"}:
-                    missing_penalty += 0.08
-                if duration <= 0:
-                    missing_penalty += 0.08
-            confidence -= min(missing_penalty, 0.18)
-        if chat_context.get("retrieved_memories"):
-            confidence += 0.06
-        if features.get("needs_follow_up"):
-            confidence -= 0.06
-        if response.get("intent") == "reschedule":
-            confidence += 0.04
-        return round(max(0.05, min(confidence, 0.95)), 2)
-
-    def text_mentions_task(self, text: str, task: dict) -> bool:
-        lower_text = text.lower()
-        alias_pairs = [
-            ("system design", "系统设计"),
-            ("lunch", "午饭"),
-            ("breakfast", "早饭"),
-            ("dinner", "晚饭"),
-            ("final examination", "期末考试"),
-            ("final exam", "期末考试"),
-            ("exam", "考试"),
-        ]
-        searchable_text = lower_text
-        for english, chinese in alias_pairs:
-            if english in lower_text:
-                searchable_text += f" {chinese}"
-            if chinese in text:
-                searchable_text += f" {english}"
-        title = str(task.get("title") or "").strip()
-        context_text = " ".join(str(task.get(key) or "") for key in ["context", "due", "deadline"]).strip()
-        searchable = " ".join([title, context_text]).strip()
-        if not title and not context_text:
-            return False
-        lower_title = title.lower()
-        if lower_title and lower_title in searchable_text:
-            return True
-        stop_words = {
-            "the", "and", "for", "with", "need", "needs", "have", "has", "plan",
-            "finish", "complete", "task", "today", "tomorrow", "august",
-            "move", "reschedule", "put", "schedule", "change", "set", "start", "shift",
-        }
-        title_tokens = [
-            token for token in re.findall(r"[A-Za-z0-9]+", lower_title)
-            if len(token) >= 3 and token not in stop_words
-        ]
-        title_hits = [token for token in title_tokens if token in searchable_text]
-        if len(title_tokens) == 1 and title_hits:
-            return True
-        if len(title_hits) >= 2:
-            return True
-        context_tokens = [
-            token for token in re.findall(r"[A-Za-z0-9]+", context_text.lower())
-            if len(token) >= 3 and token not in stop_words
-        ]
-        context_hits = [token for token in context_tokens if token in searchable_text]
-        if len(context_hits) >= 2:
-            return True
-        chinese_title = "".join(re.findall(r"[\u4e00-\u9fff]", searchable))
-        if len(chinese_title) >= 2:
-            fragments = {
-                chinese_title[offset : offset + 2]
-                for offset in range(len(chinese_title) - 1)
-            }
-            if any(fragment in searchable_text for fragment in fragments):
-                return True
-        return False
-
-    def resolve_task_reference_context(self, text: str, chat_context: dict) -> dict:
-        recent_tasks = (chat_context or {}).get("recent_tasks") or []
-        active_tasks = (chat_context or {}).get("active_tasks") or []
-        candidate_tasks = recent_tasks + [
-            task for task in active_tasks
-            if task.get("id") not in {recent.get("id") for recent in recent_tasks}
-        ]
-        lower_text = text.lower()
-        has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
-        has_time_range = parse_clock_range(text) is not None
-        explicit_reference = re.search(
-            r"(这个|那个|它|该任务|上一条|上一个|刚刚|刚才|第\s*[一二两三四五六七八九\d]\s*个?|"
-            r"\b(it|this|that|that task|the task|previous|last one|same task|first one|second one)\b)",
-            lower_text,
-            re.I,
-        )
-        edit_action = re.search(
-            r"(改到|放到|安排到|移到|移动到|调整到|提前|推迟|换到|开始|"
-            r"\b(move|reschedule|put|schedule|change|set|start|shift)\b)",
-            lower_text,
-            re.I,
-        )
-        new_topic = re.search(
-            r"\b(i\s+also\s+have|also\s+have|i\s+have|i\s+plan\s+to|plan\s+to|need\s+to|have\s+to|"
-            r"eat|lunch|breakfast|dinner|meal|final\s+exam|examination|exam|deadline|due|by)\b",
-            lower_text,
-        )
-        title_matches = [task for task in candidate_tasks if self.text_mentions_task(text, task)]
-        evidence = {
-            "has_time": bool(has_time),
-            "has_time_range": bool(has_time_range),
-            "explicit_reference": bool(explicit_reference),
-            "edit_action": bool(edit_action),
-            "new_topic": bool(new_topic),
-            "title_matches": [task.get("id") for task in title_matches],
-        }
-        if self.looks_like_compact_multi_task_list(text):
-            return {"mode": "new_task", "confidence": 0.84, "target_tasks": [], "evidence": evidence}
-        if new_topic and not explicit_reference and not title_matches:
-            return {"mode": "new_task", "confidence": 0.82, "target_tasks": [], "evidence": evidence}
-        if title_matches and (has_time or has_time_range or edit_action):
-            return {"mode": "follow_up", "confidence": 0.86, "target_tasks": title_matches, "evidence": evidence}
-        if explicit_reference and (has_time or has_time_range or edit_action) and recent_tasks:
-            return {"mode": "follow_up", "confidence": 0.78, "target_tasks": recent_tasks, "evidence": evidence}
-        if edit_action and has_time:
-            return {"mode": "ambiguous", "confidence": 0.42, "target_tasks": [], "evidence": evidence}
-        if has_time and recent_tasks and not explicit_reference and not title_matches and not edit_action:
-            compact = re.sub(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}|at|to|on|今天|明天|周[一二三四五六日天]", "", lower_text)
-            compact = re.sub(r"[\s,，。；;:：-]+", "", compact)
-            if len(compact) <= 8:
-                return {"mode": "ambiguous", "confidence": 0.38, "target_tasks": [], "evidence": evidence}
-        return {"mode": "new_task", "confidence": 0.72, "target_tasks": [], "evidence": evidence}
-
     def chat_turn(self, user_id: str, payload: dict) -> dict:
         text = payload.get("text", "").strip()
         if not text:
@@ -1433,103 +999,41 @@ class Store:
                 "embedding_model": "humanos-local-hash-embedding-v1",
             },
         }
-        reference_context = self.resolve_task_reference_context(text, chat_context)
-        response["context"]["reference_resolution"] = reference_context
-        if reference_context["mode"] == "ambiguous":
-            if reference_context.get("evidence", {}).get("edit_action"):
-                response["reply"] = "我识别到你想调整时间，但没能确定要修改哪一个已有任务。请补充任务名称，或说“把上一条改到这个时间”。"
-            else:
-                response["reply"] = "这条只包含时间，我不确定是要修改上一条任务，还是新建一个事件。请补一句任务名称或说“把上一条改到这个时间”。"
-            response["intent"] = "other"
-            response["confidence"] = reference_context["confidence"]
-            features = {**features, "confidence": response["confidence"], "reference_resolution": reference_context}
-            response["features"] = features
-            self.save_chat_turn(
-                user_id=user_id,
-                user_text=text,
-                assistant_reply=response["reply"],
-                intent=response["intent"],
-                features=features,
-                task_ids=[],
-            )
-            return response
-        if reference_context["mode"] == "follow_up":
-            followup_tasks = self.parse_time_followup_for_recent_tasks(
-                user_id,
-                text,
-                chat_context,
-                reference_context.get("target_tasks") or [],
-            )
-            if followup_tasks:
-                response["tasks"] = followup_tasks
-                response["reply"] = f"我已根据上下文把时间更新到 {len(followup_tasks)} 个已有任务上，并在右侧生成待确认安排。"
-                intent = "reschedule"
-                response["intent"] = intent
-        lower_text = text.lower()
-        task_keywords = [
-            "任务",
-            "写",
-            "读",
-            "阅读",
-            "整理",
-            "完成",
-            "复习",
-            "学习",
-            "开会",
-            "会议",
-            "组会",
-            "取",
-            "拿",
-            "办",
-            "买",
-            "发",
-            "看",
-            "做",
-            "分钟",
-            "小时",
-            "点",
-            "时",
-            "明天",
-            "今天",
-            "周",
-            "need to",
-            "todo",
-            "task",
-            "finish",
-            "complete",
-            "write",
-            "read",
-            "review",
-            "study",
-            "prepare",
-            "exam",
-            "examination",
-            "plan to",
-            "eat",
-            "lunch",
-            "breakfast",
-            "dinner",
-            "meal",
-            "design",
-            "deadline",
-            "due",
-            "today",
-            "tomorrow",
-            "august",
-            "agust",
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "saturday",
-            "sunday",
-        ]
-        should_parse_tasks = (
-            intent in {"add_task", "reschedule"}
-            or any(word in lower_text for word in task_keywords)
-            or self.looks_like_compact_multi_task_list(text)
-        ) and intent in {"add_task", "reschedule", "other", "progress_update"}
+        followup_tasks = self.parse_time_followup_for_recent_tasks(user_id, text, chat_context)
+        if followup_tasks:
+            response["tasks"] = followup_tasks
+            response["reply"] = f"我已把时间补充到上一轮 {len(followup_tasks)} 个任务上，并在右侧生成待确认安排。"
+            intent = "reschedule"
+            response["intent"] = intent
+        should_parse_tasks = any(
+            word in text
+            for word in [
+                "任务",
+                "写",
+                "读",
+                "阅读",
+                "整理",
+                "完成",
+                "复习",
+                "学习",
+                "开会",
+                "会议",
+                "取",
+                "拿",
+                "办",
+                "买",
+                "发",
+                "看",
+                "做",
+                "分钟",
+                "小时",
+                "点",
+                "时",
+                "明天",
+                "今天",
+                "周",
+            ]
+        ) and (intent in {"add_task", "reschedule", "other"} or self.looks_like_compact_multi_task_list(text))
         if should_parse_tasks and not response["tasks"]:
             intent = "add_task" if intent == "progress_update" else intent
             response["intent"] = intent
@@ -1542,10 +1046,8 @@ class Store:
         elif intent == "progress_update":
             response["reply"] = "收到进展。你可以继续补充下一步，或让我根据当前状态重新安排。"
         elif intent == "interruption":
-            response["reply"] = "收到中断情况。请补一句回来后第一步，我会把它作为恢复线索。"
-        response["confidence"] = self.chat_turn_confidence(response, chat_context)
-        features = {**features, "confidence": response["confidence"]}
-        response["features"] = features
+            response["reply"] = "收到。这是暂停触发信号，不等同于系统已经判断你的状态下降。请用最小中断记录补充原因、进展和回来后的第一步。"
+            response["event_trigger"] = "open_pause_checkin"
         self.save_chat_turn(
             user_id=user_id,
             user_text=text,
@@ -1598,7 +1100,7 @@ class Store:
         self.log_event(user_id, "chat_turn_saved", {"turn_id": turn["id"], "intent": intent, "task_ids": task_ids})
         return turn
 
-    def list_chat_turns(self, user_id: str, limit: int = CHAT_CONTEXT_TURN_LIMIT) -> list[dict]:
+    def list_chat_turns(self, user_id: str, limit: int = 20) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM chat_turns WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
@@ -1626,26 +1128,22 @@ class Store:
             ).fetchall()
         for row in rows:
             task_ids = from_json(row["task_ids_json"], [])
-            tasks = [self.get_task(task_id, user_id=user_id) for task_id in task_ids if task_id]
+            tasks = [self.get_task(task_id) for task_id in task_ids if task_id]
             tasks = [task for task in tasks if task and task.get("status") not in {"completed", "terminated"}]
             if tasks:
                 return tasks
         return []
 
-    def parse_time_followup_for_recent_tasks(
-        self,
-        user_id: str,
-        text: str,
-        chat_context: dict | None = None,
-        target_tasks: list[dict] | None = None,
-    ) -> list[dict]:
-        recent_tasks = target_tasks or []
+    def parse_time_followup_for_recent_tasks(self, user_id: str, text: str, chat_context: dict | None = None) -> list[dict]:
+        recent_tasks = (chat_context or {}).get("recent_tasks") or self.latest_task_turn_tasks(user_id)
         if not recent_tasks:
-            return []
-        if self.looks_like_compact_multi_task_list(text):
             return []
         has_time = re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", text)
         if not has_time:
+            return []
+        has_reference_marker = re.search(r"(第[一二三四五六七八九\d]+|这个|那个|开始|在|都是|每个)", text)
+        has_time_range = parse_clock_range(text) is not None
+        if not has_reference_marker and not has_time_range and len(recent_tasks) != 1:
             return []
 
         day_match = re.search(r"(今天|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])", text)
@@ -1704,14 +1202,19 @@ class Store:
                     if title and (title in part or any(token in part for token in title_tokens)):
                         target_index = index
                         break
-            if target_index is None and len(recent_tasks) == 1:
-                target_index = 0
-            if target_index is None and re.search(r"(都是|每个|all|each|every)", text, re.I):
+            if target_index is None:
                 for index, task in enumerate(recent_tasks):
                     if index in used_indexes:
                         continue
-                    target_index = index
-                    break
+                    due_text = str(task.get("due") or "")
+                    if not re.search(r"\d{1,2}\s*(点|时)|\d{1,2}[:：]\d{2}", due_text):
+                        target_index = index
+                        break
+            if target_index is None:
+                for index in range(len(recent_tasks)):
+                    if index not in used_indexes:
+                        target_index = index
+                        break
             if target_index is None or target_index >= len(recent_tasks):
                 continue
             used_indexes.add(target_index)
@@ -1724,29 +1227,21 @@ class Store:
         updated_tasks = []
         for target_index, part, start, duration in assignments[: len(recent_tasks)]:
             task = recent_tasks[target_index]
-            start = normalize_calendar_hour(start, duration)
             updated = self.patch_task(
                 task["id"],
                 {
-                    "task_type": "fixed_event",
-                    "deadline": f"{day} {format_clock_hour(start)}",
                     "due": f"{day} {format_clock_hour(start)}",
-                    "estimated_duration": duration,
                     "duration": duration,
                     "context": f"{task.get('context') or task.get('title')}；时间补充：{part}",
                 },
-                user_id=user_id,
             )
             updated["parser"] = "time_followup"
             updated_tasks.append(updated)
         return updated_tasks
 
-    def get_task(self, task_id: str, user_id: str | None = None) -> dict | None:
+    def get_task(self, task_id: str) -> dict | None:
         with self.connect() as conn:
-            if user_id:
-                row = conn.execute("SELECT * FROM tasks WHERE id=? AND user_id=?", (task_id, user_id)).fetchone()
-            else:
-                row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
         return self.task_row(row) if row else None
 
     def list_tasks(self, user_id: str) -> list[dict]:
@@ -1757,7 +1252,7 @@ class Store:
         return [self.task_row(row) for row in rows]
 
     def build_chat_context(self, user_id: str, text: str) -> dict:
-        turns = self.list_chat_turns(user_id, limit=CHAT_CONTEXT_TURN_LIMIT)
+        turns = self.list_chat_turns(user_id, limit=6)
         active_tasks = [
             task for task in self.list_tasks(user_id)
             if task.get("status") not in {"completed", "terminated"}
@@ -1768,7 +1263,7 @@ class Store:
             [
                 text,
                 " ".join(task.get("title", "") for task in recent_tasks),
-                " ".join(turn.get("user_text", "") for turn in turns[-10:]),
+                " ".join(turn.get("user_text", "") for turn in turns[-3:]),
             ]
         )
         memories = self.search_memories(user_id, query, top_k=5)
@@ -1780,7 +1275,7 @@ class Store:
                     "intent": turn.get("intent"),
                     "task_ids": turn.get("task_ids", []),
                 }
-                for turn in turns[-CHAT_CONTEXT_TURN_LIMIT:]
+                for turn in turns[-4:]
             ],
             "recent_tasks": [
                 {
@@ -1794,17 +1289,6 @@ class Store:
                 for task in recent_tasks
             ],
             "active_task_titles": [task.get("title") for task in active_tasks[-8:]],
-            "active_tasks": [
-                {
-                    "id": task.get("id"),
-                    "title": task.get("title"),
-                    "due": task.get("due"),
-                    "duration": task.get("duration"),
-                    "status": task.get("status"),
-                    "context": task.get("context"),
-                }
-                for task in active_tasks[-12:]
-            ],
             "retrieved_memories": [
                 {
                     "source_type": memory.get("source_type"),
@@ -1827,41 +1311,23 @@ class Store:
         return context
 
     def task_row(self, row: sqlite3.Row) -> dict:
-        context_window = from_json(row["context_window_json"], {})
-        deadline = context_window.get("deadline") or row["due"]
-        estimated_duration = context_window.get("estimatedDuration") or row["duration"]
-        schedule_task_type = context_window.get("taskType") or self.infer_schedule_task_type(
-            {"due": row["due"], "context": row["context"]}
-        )
-        dimensions = context_window.get("dimensions")
-        if not isinstance(dimensions, dict):
-            dimensions = self.local_task_dimensions(
-                {
-                    "title": row["title"],
-                    "context": row["context"],
-                    "task_type": schedule_task_type,
-                    "deadline": deadline,
-                    "estimated_duration": estimated_duration,
-                    "cognitive_load": row["cognitive_load"],
-                    "ambiguity": row["ambiguity"],
-                }
-            )
         return {
             "id": row["id"],
             "user_id": row["user_id"],
             "title": row["title"],
             "type": row["type"],
-            "task_type": schedule_task_type,
             "due": row["due"],
-            "deadline": deadline,
             "duration": infer_duration_minutes(f"{row['title']} {row['context']}") or row["duration"],
-            "estimated_duration": estimated_duration,
             "priority": row["priority"],
             "status": row["status"],
             "context": row["context"],
-            "contextWindow": context_window,
-            "dimensions": dimensions,
+            "contextWindow": from_json(row["context_window_json"], {}),
             "cognitive_load": row["cognitive_load"],
+            "task_demand": from_json(row["demand_json"], {}),
+            "execution": from_json(row["execution_json"], {}),
+            "resource_modality": from_json(row["resource_modality_json"], []),
+            "parallelizable": bool(row["parallelizable"]),
+            "expected_difficulty": row["expected_difficulty"],
             "ambiguity": row["ambiguity"],
             "switch_cost": row["switch_cost"],
             "reentry_cost": row["reentry_cost"],
@@ -1871,14 +1337,10 @@ class Store:
             "updated_at": row["updated_at"],
         }
 
-    def patch_task(self, task_id: str, patch: dict, user_id: str | None = None) -> dict:
-        current = self.get_task(task_id, user_id=user_id)
+    def patch_task(self, task_id: str, patch: dict) -> dict:
+        current = self.get_task(task_id)
         if not current:
             raise KeyError(task_id)
-        if "deadline" in patch and "due" not in patch:
-            patch["due"] = patch["deadline"]
-        if "estimated_duration" in patch and "duration" not in patch:
-            patch["duration"] = patch["estimated_duration"]
         allowed = {
             "title",
             "type",
@@ -1891,62 +1353,54 @@ class Store:
             "ambiguity",
             "switch_cost",
             "reentry_cost",
+            "expected_difficulty",
         }
         updates: dict[str, object] = {k: v for k, v in patch.items() if k in allowed}
+        if "expected_difficulty" in patch and "task_demand" not in patch:
+            refreshed_payload = {
+                **current,
+                **patch,
+                "task_features": (current.get("task_demand") or {}).get("task_features", {}),
+            }
+            refreshed_demand = self.infer_task_demand(
+                refreshed_payload,
+                str(patch.get("type") or current.get("type") or "general"),
+            )
+            updates["demand_json"] = as_json(refreshed_demand)
+            updates["cognitive_load"] = refreshed_demand["estimated_cognitive_load"]
         if "slot" in patch:
             updates["slot_json"] = as_json(patch["slot"])
         if "checkpoints" in patch:
             updates["checkpoints_json"] = as_json(patch["checkpoints"])
-        if "contextWindow" in patch or "context_window" in patch:
-            current_window = current.get("contextWindow") or {}
-            incoming_window = patch.get("contextWindow") or patch.get("context_window") or {}
-            if not isinstance(current_window, dict):
-                current_window = {}
-            if not isinstance(incoming_window, dict):
-                incoming_window = {}
-            updates["context_window_json"] = as_json({**current_window, **incoming_window})
-        if any(key in patch for key in ["deadline", "estimated_duration", "task_type", "taskType"]):
-            context_window = dict(
-                {
-                    **(current.get("contextWindow") or {}),
-                    **(patch.get("contextWindow") or patch.get("context_window") or {}),
-                }
-            )
-            if "deadline" in patch:
-                context_window["deadline"] = patch["deadline"]
-            if "estimated_duration" in patch:
-                context_window["estimatedDuration"] = patch["estimated_duration"]
-            if "task_type" in patch or "taskType" in patch:
-                context_window["taskType"] = patch.get("task_type") or patch.get("taskType")
-            updates["context_window_json"] = as_json(context_window)
+        if "contextWindow" in patch:
+            updates["context_window_json"] = as_json(patch["contextWindow"])
+        if "context_window" in patch:
+            updates["context_window_json"] = as_json(patch["context_window"])
+        if "task_demand" in patch:
+            updates["demand_json"] = as_json(patch["task_demand"])
+        if "execution" in patch:
+            updates["execution_json"] = as_json(patch["execution"])
+        if "resource_modality" in patch:
+            updates["resource_modality_json"] = as_json(patch["resource_modality"])
+        if "parallelizable" in patch:
+            updates["parallelizable"] = int(bool(patch["parallelizable"]))
         updates["updated_at"] = now_ms()
         assignments = ", ".join(f"{key}=?" for key in updates)
-        values = list(updates.values())
+        values = list(updates.values()) + [task_id]
         with self.connect() as conn:
-            if user_id:
-                values.extend([task_id, user_id])
-                conn.execute(f"UPDATE tasks SET {assignments} WHERE id=? AND user_id=?", values)
-            else:
-                values.append(task_id)
-                conn.execute(f"UPDATE tasks SET {assignments} WHERE id=?", values)
+            conn.execute(f"UPDATE tasks SET {assignments} WHERE id=?", values)
         self.log_event(current["user_id"], "task_updated", {"task_id": task_id, "patch": patch})
-        return self.get_task(task_id, user_id=user_id) or {}
+        return self.get_task(task_id) or {}
 
-    def delete_task(self, task_id: str, user_id: str | None = None) -> dict:
-        current = self.get_task(task_id, user_id=user_id)
+    def delete_task(self, task_id: str) -> dict:
+        current = self.get_task(task_id)
         if not current:
             raise KeyError(task_id)
         with self.connect() as conn:
-            if user_id:
-                conn.execute("DELETE FROM context_dumps WHERE task_id=? AND user_id=?", (task_id, user_id))
-                conn.execute("DELETE FROM memories WHERE user_id=? AND (task_id=? OR source_id=?)", (user_id, task_id, task_id))
-                conn.execute("DELETE FROM events WHERE user_id=? AND payload_json LIKE ?", (user_id, f"%{task_id}%"))
-                conn.execute("DELETE FROM tasks WHERE id=? AND user_id=?", (task_id, user_id))
-            else:
-                conn.execute("DELETE FROM context_dumps WHERE task_id=?", (task_id,))
-                conn.execute("DELETE FROM memories WHERE task_id=? OR source_id=?", (task_id, task_id))
-                conn.execute("DELETE FROM events WHERE payload_json LIKE ?", (f"%{task_id}%",))
-                conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+            conn.execute("DELETE FROM context_dumps WHERE task_id=?", (task_id,))
+            conn.execute("DELETE FROM memories WHERE task_id=? OR source_id=?", (task_id, task_id))
+            conn.execute("DELETE FROM events WHERE payload_json LIKE ?", (f"%{task_id}%",))
+            conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self.log_event(current["user_id"], "task_deleted", {"task_id": task_id, "title": current["title"]})
         return {"id": task_id, "deleted": True}
 
@@ -1960,6 +1414,11 @@ class Store:
             "stress": int(payload.get("stress", 4)),
             "mood": payload.get("mood"),
             "attention_residue": payload.get("attention_residue", ""),
+            "emotion": payload.get("emotion", "neutral"),
+            "readiness": payload.get("readiness", "unsure"),
+            "daily_note": payload.get("daily_note", ""),
+            "source": "self_report",
+            "confidence_level": "high",
             "created_at": now_ms(),
         }
         with self.connect() as conn:
@@ -1967,9 +1426,9 @@ class Store:
                 """
                 INSERT INTO runtime_states (
                   id, user_id, focus, energy, stress, mood,
-                  attention_residue, created_at
+                  attention_residue, emotion, readiness, daily_note, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     state["id"],
@@ -1979,6 +1438,9 @@ class Store:
                     state["stress"],
                     state["mood"],
                     state["attention_residue"],
+                    state["emotion"],
+                    state["readiness"],
+                    state["daily_note"],
                     state["created_at"],
                 ),
             )
@@ -1992,8 +1454,14 @@ class Store:
                 (user_id,),
             ).fetchone()
         if not row:
-            return {"focus": 5, "energy": 4, "stress": 5, "attention_residue": ""}
-        return dict(row)
+            return {
+                "focus": 5, "energy": 4, "stress": 5, "attention_residue": "",
+                "emotion": "neutral", "readiness": "unsure", "source": "default",
+                "confidence_level": "low",
+            }
+        state = dict(row)
+        state.update({"source": "self_report", "confidence_level": "high"})
+        return state
 
     def save_context_dump(self, user_id: str, payload: dict) -> dict:
         dump_id = new_id("dump")
@@ -2031,11 +1499,33 @@ class Store:
                 ),
             )
         checkpoints = [
-            {"label": "当前进展", "text": dump["progress"]},
-            {"label": "未解决问题", "text": "；".join(dump["open_questions"]) or "暂无"},
-            {"label": "下一步", "text": dump["next_action"] or "恢复时先重新确认下一步。"},
+            {"label": "暂停原因", "text": dump["stop_reason"]},
+            {"label": "当前进展", "text": dump["progress"] or "未补充"},
+            {"label": "下一步", "text": dump["next_action"] or "恢复时先确认一个小步骤。"},
         ]
-        self.patch_task(task_id, {"status": "paused", "checkpoints": checkpoints}, user_id=user_id)
+        task = self.get_task(task_id) or {}
+        execution = task.get("execution") or {}
+        execution["remaining_duration_minutes"] = int(
+            payload.get("remaining_duration_minutes")
+            or execution.get("remaining_duration_minutes")
+            or task.get("duration", 60)
+        )
+        execution["progress_percent"] = int(payload.get("progress_percent") or execution.get("progress_percent") or 0)
+        execution["last_stop_reason"] = dump["stop_reason"]
+        next_status = "blocked" if dump["stop_reason"] == "blocked" else "paused"
+        self.patch_task(
+            task_id,
+            {
+                "status": next_status,
+                "checkpoints": checkpoints,
+                "execution": execution,
+                "contextWindow": {
+                    "progress": dump["progress"],
+                    "nextStep": dump["next_action"],
+                    "openQuestions": "；".join(dump["open_questions"]),
+                },
+            },
+        )
         memory_text = (
             f"Context dump for task {task_id}. Progress: {dump['progress']}. "
             f"Open questions: {', '.join(dump['open_questions'])}. "
@@ -2051,6 +1541,157 @@ class Store:
         )
         self.log_event(user_id, "context_dump_saved", dump)
         return dump
+
+    def save_execution_feedback(self, user_id: str, payload: dict) -> dict:
+        """Store three feedback targets separately and preserve the same task identity."""
+        task_id = payload["task_id"]
+        task = self.get_task(task_id)
+        if not task:
+            raise KeyError(task_id)
+        feedback = {
+            "id": new_id("feedback"),
+            "user_id": user_id,
+            "task_id": task_id,
+            "trigger": payload.get("trigger", "task_completed"),
+            "task_evaluation": payload.get("task_evaluation") or {},
+            "state_evaluation": payload.get("state_evaluation") or {},
+            "recommendation_evaluation": payload.get("recommendation_evaluation") or {},
+            "created_at": now_ms(),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO execution_feedback (
+                  id, user_id, task_id, trigger, task_evaluation_json,
+                  state_evaluation_json, recommendation_evaluation_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    feedback["id"], user_id, task_id, feedback["trigger"],
+                    as_json(feedback["task_evaluation"]),
+                    as_json(feedback["state_evaluation"]),
+                    as_json(feedback["recommendation_evaluation"]),
+                    feedback["created_at"],
+                ),
+            )
+        execution = task.get("execution") or {}
+        task_eval = feedback["task_evaluation"]
+        actual = int(task_eval.get("actual_minutes") or 0)
+        execution["accumulated_actual_minutes"] = int(execution.get("accumulated_actual_minutes") or 0) + actual
+        if task_eval.get("remaining_duration_minutes") is not None:
+            execution["remaining_duration_minutes"] = int(task_eval["remaining_duration_minutes"])
+        if task_eval.get("completion") == "completed":
+            execution["remaining_duration_minutes"] = 0
+        execution["last_perceived_difficulty"] = task_eval.get("perceived_difficulty")
+        execution.setdefault("sessions", []).append({
+            "feedback_id": feedback["id"],
+            "actual_minutes": actual,
+            "completion": task_eval.get("completion", "partial"),
+            "perceived_difficulty": task_eval.get("perceived_difficulty"),
+        })
+        demand = task.get("task_demand") or {}
+        if task_eval.get("perceived_difficulty") is not None:
+            demand.setdefault("calibration_history", []).append({
+                "feedback_id": feedback["id"],
+                "expected_difficulty": task.get("expected_difficulty"),
+                "perceived_difficulty": task_eval.get("perceived_difficulty"),
+            })
+            demand["last_calibrated_at"] = feedback["created_at"]
+        patch = {"execution": execution, "task_demand": demand}
+        if task_eval.get("completion") == "completed":
+            patch["status"] = "completed"
+        self.patch_task(task_id, patch)
+        self.add_memory(
+            user_id=user_id,
+            source_type="episodic_memory",
+            source_id=feedback["id"],
+            task_id=task_id,
+            text=(
+                f"Task episode {task['title']}. Trigger: {feedback['trigger']}. "
+                f"Task evaluation: {as_json(task_eval)}. State after: "
+                f"{as_json(feedback['state_evaluation'])}."
+            ),
+            metadata={
+                "kind": "execution_episode",
+                "eligible_for_pattern": True,
+                "pattern_label": payload.get("pattern_label") or feedback["trigger"],
+            },
+        )
+        self.log_event(user_id, "execution_feedback_saved", feedback)
+        return feedback
+
+    def record_state_transition(self, user_id: str, payload: dict) -> dict:
+        transition = {
+            "id": new_id("transition"),
+            "user_id": user_id,
+            "task_id": payload.get("task_id"),
+            "before_state": payload.get("before_state") or {},
+            "action": payload.get("action") or {},
+            "predicted_state": payload.get("predicted_state") or {},
+            "actual_state": payload.get("actual_state") or {},
+            "outcome": payload.get("outcome") or {},
+            "created_at": now_ms(),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO state_transitions (
+                  id, user_id, task_id, before_state_json, action_json,
+                  predicted_state_json, actual_state_json, outcome_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    transition["id"], user_id, transition["task_id"],
+                    as_json(transition["before_state"]), as_json(transition["action"]),
+                    as_json(transition["predicted_state"]), as_json(transition["actual_state"]),
+                    as_json(transition["outcome"]), transition["created_at"],
+                ),
+            )
+        self.log_event(user_id, "state_transition_recorded", transition)
+        return transition
+
+    def pattern_candidates(self, user_id: str) -> list[dict]:
+        """Three similar episodes create a candidate; static profile still needs confirmation."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT metadata_json, created_at FROM memories WHERE user_id=? AND source_type='episodic_memory'",
+                (user_id,),
+            ).fetchall()
+        groups: dict[str, list[int]] = {}
+        for row in rows:
+            metadata = from_json(row["metadata_json"], {})
+            label = metadata.get("pattern_label") or metadata.get("stop_reason")
+            if label:
+                groups.setdefault(str(label), []).append(row["created_at"])
+        return [
+            {
+                "pattern_label": label,
+                "episode_count": len(dates),
+                "status": "candidate" if len(dates) >= 3 else "insufficient_evidence",
+                "can_suggest_update": len(set(time.strftime("%Y-%m-%d", time.localtime(date / 1000)) for date in dates)) >= 5,
+                "requires_user_confirmation": True,
+            }
+            for label, dates in groups.items()
+        ]
+
+    def promote_pattern(self, user_id: str, payload: dict) -> dict:
+        if not payload.get("user_confirmed"):
+            raise ValueError("user confirmation is required before updating static profile")
+        label = str(payload.get("pattern_label") or "").strip()
+        if not label:
+            raise ValueError("pattern_label is required")
+        profile = self.ensure_profile(user_id)
+        patterns = list(profile.get("learned_patterns") or [])
+        if not any(item.get("pattern_label") == label for item in patterns):
+            patterns.append({
+                "pattern_label": label,
+                "evidence_count": int(payload.get("evidence_count") or 1),
+                "user_confirmed": True,
+                "confirmed_at": now_ms(),
+            })
+        profile["learned_patterns"] = patterns
+        updated = self.upsert_profile(profile)
+        return {"learned_patterns": updated.get("learned_patterns", [])}
 
     def add_memory(
         self,
@@ -2122,6 +1763,113 @@ class Store:
         scored.sort(key=lambda item: item["score"], reverse=True)
         return scored[:top_k]
 
+    def analyze_schedule_inputs(self, state: dict) -> dict:
+        tasks = state.get("tasks", [])
+        profile = state.get("profile", {})
+        fallback_demands = []
+        for task in tasks:
+            expected = task.get("expected_difficulty") or task.get("task_demand", {}).get("expected_difficulty")
+            try:
+                expected_value = int(expected) if expected is not None else None
+            except (TypeError, ValueError):
+                expected_value = None
+            level = "high" if expected_value and expected_value >= 6 else "low" if expected_value and expected_value <= 2 else "medium"
+            fallback_demands.append({
+                "task_id": task.get("id"),
+                "level": level,
+                "evidence": task.get("task_demand", {}).get("evidence") or ["来自用户难度输入或本地任务需求规则"],
+                "confidence_level": task.get("task_demand", {}).get("confidence_level") or ("high" if expected_value else "low"),
+            })
+
+        llm_result = chat_completion(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是 HumanOS 的任务分析 agent。只输出 JSON。"
+                        "分析 Task Demand 与任务之间的先后依赖，不生成具体开始时间。"
+                        "用户已经确认的难度是高优先级证据，不能无依据覆盖。"
+                        "依赖只能引用输入中的 task_id；不确定时不要虚构。"
+                        "runtime_state 只能影响今天第一个执行块，不能用于判断整周所有任务。"
+                        "将证据与推断分开：每个判断都给出具体 evidence 和 calibrated confidence。"
+                        "固定时间和习惯时段是硬边界；AI 安排活动只在用户给出的可发生范围内选择，不把整个范围视为占用。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": as_json({
+                        "profile": {
+                            "role": profile.get("role"),
+                            "deep_work_window": profile.get("deep_work_window"),
+                            "low_energy_window": profile.get("low_energy_window"),
+                            "weekly_goal": profile.get("weekly_context", {}).get("weekly_goal"),
+                        },
+                        "tasks": [
+                            {
+                                "id": task.get("id"),
+                                "title": task.get("title"),
+                                "deadline": task.get("due"),
+                                "duration": task.get("duration"),
+                                "priority": task.get("priority"),
+                                "context": task.get("context"),
+                                "user_difficulty": task.get("expected_difficulty"),
+                                "task_demand": task.get("task_demand", {}),
+                            }
+                            for task in tasks[:12]
+                        ],
+                        "required_schema": {
+                            "task_demands": [{
+                                "task_id": "existing task id",
+                                "level": "low/medium/high",
+                                "evidence": ["specific evidence"],
+                                "confidence_level": "low/medium/high",
+                            }],
+                            "dependencies": [{
+                                "before_task_id": "existing task id",
+                                "after_task_id": "existing task id",
+                                "reason": "why the first task must precede the second",
+                                "confidence_level": "low/medium/high",
+                            }],
+                            "evidence": ["cross-task evidence used"],
+                            "confidence_level": "low/medium/high",
+                        },
+                    }),
+                },
+            ]
+        )
+        if not isinstance(llm_result, dict):
+            return {
+                "provider": "local_fallback",
+                "model": None,
+                "prompt_version": "task-demand-dependency-v2",
+                "task_demands": fallback_demands,
+                "dependencies": [],
+                "evidence": ["DeepSeek 不可用，使用用户难度与本地规则"],
+                "confidence_level": "low",
+            }
+
+        valid_ids = {str(task.get("id")) for task in tasks}
+        task_demands = [
+            item for item in (llm_result.get("task_demands") or [])
+            if isinstance(item, dict) and str(item.get("task_id")) in valid_ids
+        ]
+        dependencies = [
+            item for item in (llm_result.get("dependencies") or [])
+            if isinstance(item, dict)
+            and str(item.get("before_task_id")) in valid_ids
+            and str(item.get("after_task_id")) in valid_ids
+            and str(item.get("before_task_id")) != str(item.get("after_task_id"))
+        ]
+        return {
+            "provider": "deepseek",
+            "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+            "prompt_version": "task-demand-dependency-v2",
+            "task_demands": task_demands or fallback_demands,
+            "dependencies": dependencies,
+            "evidence": llm_result.get("evidence") or [],
+            "confidence_level": llm_result.get("confidence_level") or "medium",
+        }
+
     def decide_schedule(self, user_id: str, payload: dict) -> dict:
         from humanos_graph import run_schedule_graph
 
@@ -2130,15 +1878,7 @@ class Store:
         return decision
 
     def build_schedule_query(self, tasks: list[dict], state: dict) -> str:
-        task_text = "; ".join(
-            (
-                f"{t.get('title')} {t.get('task_type') or t.get('type')} "
-                f"deadline={t.get('deadline') or t.get('due')} "
-                f"duration={t.get('estimated_duration') or t.get('duration')} "
-                f"status={t.get('status')}"
-            )
-            for t in tasks[:8]
-        )
+        task_text = "; ".join(f"{t.get('title')} {t.get('type')} {t.get('status')}" for t in tasks[:6])
         return (
             f"Schedule tasks under focus {state.get('focus')} energy {state.get('energy')} "
             f"stress {state.get('stress')}. Tasks: {task_text}"
@@ -2163,41 +1903,71 @@ class Store:
         tasks = state.get("tasks", [])
         runtime_state = state.get("runtime_state", {})
         memories = state.get("memories", [])
-        payload = state.get("payload", {})
-        language = payload.get("language") or profile.get("language") or "zh"
-        response_language = "English" if language == "en" else "Chinese"
+        candidate_summaries = []
+        for candidate in decision.get("candidate_plans", []):
+            candidate_summaries.append({
+                "id": candidate.get("id"),
+                "label": candidate.get("label"),
+                "metrics": candidate.get("metrics", {}),
+                "validation": candidate.get("validation", {}),
+                "unscheduled_tasks": candidate.get("unscheduled_tasks", []),
+                "blocks": [
+                    {
+                        "task_id": block.get("task_id"),
+                        "day_index": block.get("day_index"),
+                        "start": block.get("start"),
+                        "end": block.get("end"),
+                        "session_minutes": block.get("session_minutes"),
+                        "remaining_after_block_minutes": block.get("remaining_after_block_minutes"),
+                    }
+                    for block in candidate.get("plan_patch", [])[:80]
+                ],
+            })
         llm_result = chat_completion(
             [
                 {
                     "role": "system",
                     "content": (
-                        "你是 HumanOS 的调度解释 agent。只输出 JSON。"
+                        "你是 HumanOS 的候选计划比较 agent。只输出 JSON。"
                         "不要说你在收集数据、沉淀画像、使用 embedding 或后端。"
+                        "Deadline 是最晚完成时间，绝不能作为开始时间。"
+                        "runtime_state 只允许解释或调整今天的第一个任务，不能用于解释整周安排。"
+                        "只能在 candidate_plans 中选择，不能发明新的时间块。"
+                        "有 hard violation 的方案不能被选择；优先减少 remaining_minutes，再考虑认知匹配、依赖和负荷平衡。"
+                        "固定时间/习惯时段必须避开；AI 安排活动已经由约束引擎在可发生范围内预留，不得与其重叠。"
+                        "必须引用输入证据；证据不足时降低 confidence 并写入 warnings，不得补造用户偏好。"
                         "解释要面向学生，简短、具体、可操作。"
-                        "调度必须基于 joint state：任务状态 + 用户状态 + 当前上下文。"
-                        "不要把心理状态说成测量结果；mental-state inference is hypothesis, not measurement。"
-                        "如果置信度低或计划改动影响大，必须表达为需要用户确认。"
-                        "参考候选行动和 transition simulation 后，再说明为什么选择当前建议。"
-                        f"所有面向用户的字段必须使用 {response_language}。"
                     ),
                 },
                 {
                     "role": "user",
                     "content": as_json(
                         {
-                            "profile": profile,
+                            "relevant_profile": {
+                                "deep_work_window": profile.get("deep_work_window"),
+                                "low_energy_window": profile.get("low_energy_window"),
+                                "preferred_session_minutes": profile.get("task_preferences", {}).get("preferred_session_minutes"),
+                                "weekly_context": profile.get("weekly_context", {}),
+                                "learned_patterns": profile.get("learned_patterns", []),
+                            },
                             "runtime_state": runtime_state,
                             "tasks": tasks[:6],
                             "memory_evidence": memories[:3],
-                            "current_decision": decision,
-                            "language": language,
+                            "input_analysis": state.get("ai_task_analysis", {}),
+                            "candidate_plans": candidate_summaries,
+                            "deterministic_repair_suggestions": decision.get("repair_suggestions", []),
                             "required_schema": {
-                                "explanation": f"one short user-facing scheduling reason in {response_language}",
-                                "first_action": f"one immediate next step in {response_language}",
-                                "risk": f"one likely blocker in {response_language}",
-                                "evidence": ["使用了哪些任务/用户状态/上下文证据"],
-                                "confidence_level": "high/medium/low",
-                                "selected_action_id": "从 current_decision.candidate_actions 中选择的 action id",
+                                "explanation": "一句中文安排理由",
+                                "first_action": "用户现在可以立刻开始的一步",
+                                "risk": "可能卡住的原因",
+                                "selected_candidate_id": "candidate_plans 中的 id",
+                                "constraint_interpretation": ["对可用时间、固定事项和临时限制的简短理解"],
+                                "task_demand_review": ["任务需求判断及依据，包含 task_id"],
+                                "task_dependencies": ["任务依赖及依据，包含 before_task_id/after_task_id"],
+                                "repair_suggestions": ["无法完整安排时的可操作修复建议"],
+                                "evidence": ["为什么选择该候选计划"],
+                                "confidence_level": "low/medium/high",
+                                "warnings": ["输入中的冲突、歧义或需要确认的地方"],
                             },
                         }
                     ),
@@ -2206,24 +1976,70 @@ class Store:
         )
         if not isinstance(llm_result, dict):
             decision["llm_provider"] = "local_fallback"
+            decision["ai_provenance"] = {
+                "provider": state.get("ai_task_analysis", {}).get("provider", "local_fallback"),
+                "model": state.get("ai_task_analysis", {}).get("model"),
+                "calls": ["task_demand_and_dependency_analysis"],
+                "candidate_comparison": "local_fallback",
+                "evidence": state.get("ai_task_analysis", {}).get("evidence", []),
+                "confidence_level": state.get("ai_task_analysis", {}).get("confidence_level", "low"),
+                "prompt_versions": {
+                    "task_analysis": state.get("ai_task_analysis", {}).get("prompt_version", "task-demand-dependency-v2"),
+                    "candidate_comparison": "candidate-comparison-v2",
+                },
+            }
             return decision
+        selected_id = llm_result.get("selected_candidate_id")
+        selected_candidate = next(
+            (
+                candidate for candidate in decision.get("candidate_plans", [])
+                if candidate.get("id") == selected_id and candidate.get("validation", {}).get("valid", False)
+            ),
+            None,
+        )
+        if selected_candidate:
+            decision["selected_candidate_id"] = selected_candidate.get("id")
+            decision["plan_patch"] = selected_candidate.get("plan_patch", [])
+            decision["validation"] = selected_candidate.get("validation", {})
+            decision["unscheduled_tasks"] = selected_candidate.get("unscheduled_tasks", [])
         decision["explanation"] = llm_result.get("explanation") or decision.get("explanation", "")
         decision["first_action"] = llm_result.get("first_action", "")
         decision["risk"] = llm_result.get("risk", "")
-        if isinstance(llm_result.get("evidence"), list):
-            decision["llm_evidence"] = llm_result["evidence"][:5]
-        if llm_result.get("confidence_level"):
-            confidence_detail = decision.get("confidence_detail") or {}
-            confidence_detail["llm_level"] = llm_result.get("confidence_level")
-            decision["confidence_detail"] = confidence_detail
-        if llm_result.get("selected_action_id"):
-            decision["selected_action_id"] = llm_result.get("selected_action_id")
+        decision["ai_analysis"] = {
+            "constraint_interpretation": llm_result.get("constraint_interpretation") or [],
+            "task_demand_review": llm_result.get("task_demand_review") or [],
+            "task_dependencies": llm_result.get("task_dependencies") or state.get("ai_task_analysis", {}).get("dependencies", []),
+            "candidate_comparison_evidence": llm_result.get("evidence") or [],
+            "confidence_level": llm_result.get("confidence_level") or "medium",
+            "prompt_versions": {
+                "task_analysis": state.get("ai_task_analysis", {}).get("prompt_version", "task-demand-dependency-v2"),
+                "candidate_comparison": "candidate-comparison-v2",
+            },
+            "warnings": llm_result.get("warnings") or [],
+        }
+        if llm_result.get("repair_suggestions"):
+            decision["repair_suggestions"] = [
+                *decision.get("repair_suggestions", []),
+                {"source": "deepseek", "options": llm_result.get("repair_suggestions")},
+            ]
+        decision["ai_provenance"] = {
+            "provider": "deepseek",
+            "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+            "calls": ["task_demand_and_dependency_analysis", "candidate_plan_comparison"],
+            "selected_candidate_id": decision.get("selected_candidate_id"),
+            "evidence": llm_result.get("evidence") or [],
+            "confidence_level": llm_result.get("confidence_level") or "medium",
+            "prompt_versions": {
+                "task_analysis": state.get("ai_task_analysis", {}).get("prompt_version", "task-demand-dependency-v2"),
+                "candidate_comparison": "candidate-comparison-v2",
+            },
+        }
         decision["llm_provider"] = "deepseek"
         return decision
 
     def reentry_prompt(self, user_id: str, payload: dict) -> dict:
         task_id = payload["task_id"]
-        task = self.get_task(task_id, user_id=user_id)
+        task = self.get_task(task_id)
         if not task:
             raise KeyError(task_id)
         state = payload.get("runtime_state") or payload.get("current_runtime_state") or self.latest_runtime_state(user_id)
@@ -2331,7 +2147,16 @@ class Handler(BaseHTTPRequestHandler):
         method = self.command
         try:
             if method == "GET" and path == "/api/health":
-                self.send_json({"ok": True, "db": str(DB_PATH), "embedding_model": "humanos-local-hash-embedding-v1"})
+                ai_enabled = bool(os.environ.get("DEEPSEEK_API_KEY", "").strip())
+                self.send_json({
+                    "ok": True,
+                    "db": str(DB_PATH),
+                    "embedding_model": "humanos-local-hash-embedding-v1",
+                    "ai_enabled": ai_enabled,
+                    "ai_provider": "deepseek" if ai_enabled else None,
+                    "ai_model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat") if ai_enabled else None,
+                    "scheduling_mode": "constraint_engine_plus_llm" if ai_enabled else "constraint_engine_only",
+                })
                 return
 
             if path == "/api/auth/register" and method == "POST":
@@ -2381,8 +2206,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = self.read_json()
                 user_id = payload.get("user_id", "demo")
                 store.ensure_profile(user_id)
-                tasks = store.parse_tasks_from_text(user_id, payload.get("text", ""))
-                self.send_json({"tasks": tasks}, status=201)
+                task = store.parse_task_from_text(user_id, payload.get("text", ""))
+                self.send_json({"tasks": [task]}, status=201)
                 return
 
             if path == "/api/chat/turn" and method == "POST":
@@ -2401,23 +2226,12 @@ class Handler(BaseHTTPRequestHandler):
 
             if path.startswith("/api/tasks/") and method == "PATCH":
                 task_id = path.split("/")[-1]
-                payload = self.read_json()
-                user_id = payload.get("user_id") or query.get("user_id", [""])[0]
-                if not user_id:
-                    self.send_json({"error": "user_id is required"}, status=400)
-                    return
-                store.ensure_profile(user_id)
-                self.send_json({"task": store.patch_task(task_id, payload, user_id=user_id)})
+                self.send_json({"task": store.patch_task(task_id, self.read_json())})
                 return
 
             if path.startswith("/api/tasks/") and method == "DELETE":
                 task_id = path.split("/")[-1]
-                user_id = query.get("user_id", [""])[0]
-                if not user_id:
-                    self.send_json({"error": "user_id is required"}, status=400)
-                    return
-                store.ensure_profile(user_id)
-                self.send_json({"task": store.delete_task(task_id, user_id=user_id)})
+                self.send_json({"task": store.delete_task(task_id)})
                 return
 
             if path == "/api/state-checkins" and method == "POST":
@@ -2432,6 +2246,33 @@ class Handler(BaseHTTPRequestHandler):
                 user_id = payload.get("user_id", "demo")
                 store.ensure_profile(user_id)
                 self.send_json({"context_dump": store.save_context_dump(user_id, payload)}, status=201)
+                return
+
+            if path == "/api/execution-feedback" and method == "POST":
+                payload = self.read_json()
+                user_id = payload.get("user_id", "demo")
+                store.ensure_profile(user_id)
+                self.send_json({"feedback": store.save_execution_feedback(user_id, payload)}, status=201)
+                return
+
+            if path == "/api/state-transitions" and method == "POST":
+                payload = self.read_json()
+                user_id = payload.get("user_id", "demo")
+                store.ensure_profile(user_id)
+                self.send_json({"transition": store.record_state_transition(user_id, payload)}, status=201)
+                return
+
+            if path == "/api/patterns/candidates" and method == "GET":
+                user_id = query.get("user_id", ["demo"])[0]
+                store.ensure_profile(user_id)
+                self.send_json({"patterns": store.pattern_candidates(user_id)})
+                return
+
+            if path == "/api/patterns/promote" and method == "POST":
+                payload = self.read_json()
+                user_id = payload.get("user_id", "demo")
+                store.ensure_profile(user_id)
+                self.send_json(store.promote_pattern(user_id, payload))
                 return
 
             if path == "/api/schedules/decide" and method == "POST":
@@ -2471,7 +2312,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     host = "0.0.0.0"
-    port = 8787
+    port = int(os.environ.get("PORT", "8787"))
     print(f"HumanOS backend listening on http://127.0.0.1:{port}")
     print(f"External access uses http://<server-ip>:{port}")
     print(f"SQLite database: {DB_PATH}")
