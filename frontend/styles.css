@@ -4481,3 +4481,216 @@ dialog::backdrop {
     padding: 6px;
   }
 }
+
+/* Motion polish: async feedback and smoother scheduling transitions */
+.global-loading {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  z-index: 120;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 178px;
+  padding: 9px 14px;
+  border: 1px solid rgba(47, 111, 237, .24);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(247, 250, 255, .84)),
+    rgba(255, 255, 255, .86);
+  color: #1f2a44;
+  box-shadow: 0 18px 42px rgba(34, 51, 74, .14), inset 0 1px 0 rgba(255, 255, 255, .86);
+  transform: translate(-50%, -18px) scale(.98);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+.global-loading::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(47, 111, 237, .12);
+}
+
+.global-loading::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  bottom: 3px;
+  z-index: 1;
+  width: 54px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(47, 111, 237, 0), rgba(47, 111, 237, .95), rgba(47, 111, 237, 0));
+  animation: loadingTrack 1.12s ease-in-out infinite;
+}
+
+.global-loading span {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 999px;
+  background: #2f6fed;
+  box-shadow: 0 0 0 0 rgba(47, 111, 237, .32);
+  animation: loadingPulse 1.12s ease-in-out infinite;
+}
+
+.global-loading strong {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+body.is-busy .global-loading {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+@keyframes loadingTrack {
+  0% { transform: translateX(0); opacity: .25; }
+  50% { opacity: 1; }
+  100% { transform: translateX(calc(100% + 96px)); opacity: .25; }
+}
+
+@keyframes loadingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 237, .30); transform: scale(.92); }
+  50% { box-shadow: 0 0 0 6px rgba(47, 111, 237, .08); transform: scale(1); }
+}
+
+.message em {
+  display: inline-flex;
+  margin-left: 8px;
+  color: inherit;
+  font-style: normal;
+  font-weight: 650;
+  opacity: .78;
+  vertical-align: middle;
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  vertical-align: middle;
+}
+
+.typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .34;
+  animation: typingDot 1.05s ease-in-out infinite;
+}
+
+.typing-dots i:nth-child(2) { animation-delay: .14s; }
+.typing-dots i:nth-child(3) { animation-delay: .28s; }
+
+@keyframes typingDot {
+  0%, 80%, 100% { opacity: .28; transform: translateY(0); }
+  40% { opacity: .86; transform: translateY(-3px); }
+}
+
+.calendar-panel { position: relative; }
+
+.app.is-busy .calendar-panel::before {
+  content: "";
+  position: absolute;
+  inset: 78px 12px 76px 68px;
+  z-index: 22;
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .54) 46%, transparent 92%),
+    repeating-linear-gradient(180deg, rgba(47, 111, 237, .07) 0 36px, rgba(47, 111, 237, .025) 36px 72px);
+  background-size: 240px 100%, 100% 100%;
+  opacity: .58;
+  pointer-events: none;
+  animation: calendarSkeleton 1.35s ease-in-out infinite;
+}
+
+.app.is-busy .calendar-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 21;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(248, 251, 255, .08), rgba(248, 251, 255, .20));
+}
+
+@keyframes calendarSkeleton {
+  from { background-position: -240px 0, 0 0; }
+  to { background-position: calc(100% + 240px) 0, 0 0; }
+}
+
+.event,
+.week-event,
+.active-task,
+.context-window-item,
+.checkpoint-item,
+.reason-card,
+.brief-card {
+  will-change: transform;
+}
+
+.event.dragging,
+.week-event.dragging {
+  opacity: .72;
+  transform: scale(.985) rotate(.35deg);
+  box-shadow: 0 24px 54px rgba(34, 51, 74, .24);
+}
+
+.slot.drag-over,
+.week-day.drag-over {
+  outline: 2px solid rgba(47, 111, 237, .46);
+  outline-offset: -2px;
+  background:
+    linear-gradient(135deg, rgba(47, 111, 237, .08), rgba(23, 132, 111, .06)),
+    rgba(255, 255, 255, .32);
+}
+
+.pending-schedule {
+  transform-origin: bottom center;
+}
+
+.pending-schedule:not(.hidden) {
+  animation: pendingRise .22s ease both;
+}
+
+@keyframes pendingRise {
+  from { opacity: 0; transform: translateY(12px) scale(.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.calendar-grid,
+.week-grid,
+.motion-right-rail,
+.motion-sidebar {
+  transition: opacity .18s ease, filter .18s ease;
+}
+
+.app.is-busy .calendar-grid,
+.app.is-busy .week-grid {
+  filter: saturate(.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-loading,
+  .global-loading::before,
+  .global-loading span,
+  .typing-dots i,
+  .app.is-busy .calendar-panel::before,
+  .pending-schedule:not(.hidden) {
+    animation: none !important;
+    transition: none !important;
+  }
+}

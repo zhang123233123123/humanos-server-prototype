@@ -165,6 +165,10 @@
   </section>
 
   <main class="app hidden" id="appRoot">
+    <div class="global-loading" id="globalLoading" aria-live="polite" aria-hidden="true">
+      <span></span>
+      <strong id="globalLoadingText">正在处理</strong>
+    </div>
     <header class="topbar">
       <div>
         <h1>HumanOS</h1>
@@ -449,6 +453,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260803-v12-deploy"></script>
+  <script src="app.js?v=20260803-ui-loading-polish"></script>
 </body>
 </html>

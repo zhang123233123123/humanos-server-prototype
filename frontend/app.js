@@ -93,6 +93,8 @@ let currentProfile = {
 let lastDecision = null;
 let editingTaskId = null;
 const deletingTaskIds = new Set();
+let busyDepth = 0;
+let busyLabel = "";
 const HOUR_ROW_HEIGHT = 64;
 const CALENDAR_START_HOUR = 0;
 const CALENDAR_END_HOUR = 24;
@@ -175,6 +177,8 @@ const taskDialogTitle = document.getElementById("taskDialogTitle");
 const saveTaskBtn = document.getElementById("saveTaskBtn");
 const deleteTaskBtn = document.getElementById("deleteTaskBtn");
 const appRoot = document.getElementById("appRoot");
+const globalLoading = document.getElementById("globalLoading");
+const globalLoadingText = document.getElementById("globalLoadingText");
 const profileScreen = document.getElementById("profileScreen");
 const profileWizard = document.getElementById("profileWizard");
 const wizardRole = document.getElementById("wizardRole");
@@ -1459,6 +1463,7 @@ async function submitAuth() {
   if (authPending) return;
   authPending = true;
   authSubmitBtn.disabled = true;
+  setBusy(true, "signingIn");
   authError.textContent = "";
   try {
     setBackendStatus("正在进入", false);
@@ -1492,6 +1497,37 @@ async function submitAuth() {
   } finally {
     authPending = false;
     authSubmitBtn.disabled = false;
+    setBusy(false);
+  }
+}
+
+function loadingLabel(label) {
+  const map = {
+    signingIn: isEnglish() ? "Signing in" : "正在进入",
+    syncing: isEnglish() ? "Syncing workspace" : "正在同步工作台",
+    thinking: isEnglish() ? "HumanOS is parsing" : "HumanOS 正在解析",
+    scheduling: isEnglish() ? "Generating schedule" : "正在生成安排",
+    saving: isEnglish() ? "Saving changes" : "正在保存",
+    deleting: isEnglish() ? "Deleting task" : "正在删除任务"
+  };
+  return map[label] || label || (isEnglish() ? "Processing" : "正在处理");
+}
+
+function setBusy(active, label = "") {
+  busyDepth = Math.max(0, busyDepth + (active ? 1 : -1));
+  if (active && label) busyLabel = loadingLabel(label);
+  if (!busyDepth) busyLabel = "";
+  const isBusy = busyDepth > 0;
+  document.body.classList.toggle("is-busy", isBusy);
+  appRoot?.classList.toggle("is-busy", isBusy);
+  if (globalLoading) {
+    globalLoading.setAttribute("aria-hidden", isBusy ? "false" : "true");
+  }
+  if (globalLoadingText) {
+    globalLoadingText.textContent = busyLabel || loadingLabel();
+  }
+  if (!appRoot?.classList.contains("hidden") && chatThread) {
+    renderChat();
   }
 }
 
@@ -1766,6 +1802,7 @@ function blockerLabel(value) {
 }
 
 async function loadBackendState() {
+  setBusy(true, "syncing");
   try {
     const health = await api("/api/health");
     backendOnline = Boolean(health.ok);
@@ -1808,68 +1845,80 @@ async function loadBackendState() {
     setBackendStatus("暂时离线", false);
     showAuth();
     console.warn("HumanOS backend unavailable:", error.message);
+  } finally {
+    setBusy(false);
   }
 }
 
 async function saveProfileToBackend() {
-  currentProfile = {
-    ...currentProfile,
-    user_id: currentUserId(),
-    role: storageRoleValue(profileRole.value.trim()),
-    deep_work_window: profileDeepWork.value.trim() || "09:00-11:30",
-    control_preference: profileControl.value
-  };
-  if (!backendOnline) {
-    setBackendStatus("偏好已更新", false);
-    render();
-    return;
-  }
-  const response = await api(`/api/profile?user_id=${currentUserId()}`, {
-    method: "PUT",
-    body: JSON.stringify(currentProfile)
-  });
-  currentProfile = response.profile;
-  syncProfileForm();
-  setBackendStatus("偏好已保存", true);
-  render();
-}
-
-async function saveWizardProfile(markCompleted = true) {
-  wizardError.textContent = "";
-  currentProfile = {
-    ...currentProfile,
-    user_id: currentUserId(),
-    role: storageRoleValue(wizardRole.value),
-    deep_work_window: wizardDeepWork.value.trim() || "09:00-11:30",
-    low_energy_window: wizardLowEnergy.value.trim() || "14:00-15:30",
-    control_preference: wizardControl.value,
-    blocker_patterns: selectedWizardBlockers(),
-    task_preferences: {
-      ...(currentProfile.task_preferences || {}),
-      onboarding_completed: markCompleted,
-      available_windows: normalizedAvailableWindow(wizardAvailableWindows.value),
-      preferred_session_minutes: Number(wizardSessionLength.value) || 45,
-      learning_mode: wizardLearningMode.value,
-      current_courses: wizardCurrentCourses.value.trim(),
-      near_deadlines: wizardNearDeadlines.value.trim(),
-      planning_tools: planningTools(),
-      planning_gap: wizardPlanningGap.value.trim(),
-      short_term_goal: wizardGoal.value.trim(),
-      support_need: wizardSupportNeed.value,
-      recovery_preference: wizardControl.value
+  setBusy(true, "saving");
+  try {
+    currentProfile = {
+      ...currentProfile,
+      user_id: currentUserId(),
+      role: storageRoleValue(profileRole.value.trim()),
+      deep_work_window: profileDeepWork.value.trim() || "09:00-11:30",
+      control_preference: profileControl.value
+    };
+    if (!backendOnline) {
+      setBackendStatus("偏好已更新", false);
+      render();
+      return;
     }
-  };
-  if (backendOnline) {
     const response = await api(`/api/profile?user_id=${currentUserId()}`, {
       method: "PUT",
       body: JSON.stringify(currentProfile)
     });
     currentProfile = response.profile;
+    syncProfileForm();
+    setBackendStatus("偏好已保存", true);
+    render();
+  } finally {
+    setBusy(false);
   }
-  syncProfileForm();
-  showApp();
-  setBackendStatus(markCompleted ? "偏好已保存" : "稍后设置", backendOnline);
-  render();
+}
+
+async function saveWizardProfile(markCompleted = true) {
+  setBusy(true, "saving");
+  try {
+    wizardError.textContent = "";
+    currentProfile = {
+      ...currentProfile,
+      user_id: currentUserId(),
+      role: storageRoleValue(wizardRole.value),
+      deep_work_window: wizardDeepWork.value.trim() || "09:00-11:30",
+      low_energy_window: wizardLowEnergy.value.trim() || "14:00-15:30",
+      control_preference: wizardControl.value,
+      blocker_patterns: selectedWizardBlockers(),
+      task_preferences: {
+        ...(currentProfile.task_preferences || {}),
+        onboarding_completed: markCompleted,
+        available_windows: normalizedAvailableWindow(wizardAvailableWindows.value),
+        preferred_session_minutes: Number(wizardSessionLength.value) || 45,
+        learning_mode: wizardLearningMode.value,
+        current_courses: wizardCurrentCourses.value.trim(),
+        near_deadlines: wizardNearDeadlines.value.trim(),
+        planning_tools: planningTools(),
+        planning_gap: wizardPlanningGap.value.trim(),
+        short_term_goal: wizardGoal.value.trim(),
+        support_need: wizardSupportNeed.value,
+        recovery_preference: wizardControl.value
+      }
+    };
+    if (backendOnline) {
+      const response = await api(`/api/profile?user_id=${currentUserId()}`, {
+        method: "PUT",
+        body: JSON.stringify(currentProfile)
+      });
+      currentProfile = response.profile;
+    }
+    syncProfileForm();
+    showApp();
+    setBackendStatus(markCompleted ? "偏好已保存" : "稍后设置", backendOnline);
+    render();
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function saveRuntimeStateToBackend() {
@@ -1935,6 +1984,7 @@ async function deleteTaskById(taskId, closeDialog = false) {
     });
     if (!pendingSchedulePlan.plan_patch.length) pendingSchedulePlan = null;
   }
+  setBusy(true, "deleting");
   try {
     await deleteBackendTask(taskId);
     activeSelectionMode = "auto";
@@ -1950,11 +2000,14 @@ async function deleteTaskById(taskId, closeDialog = false) {
     console.error(error);
   } finally {
     deletingTaskIds.delete(taskId);
+    setBusy(false);
   }
   render();
 }
 
 async function createTaskFromPayload(task) {
+  setBusy(true, "saving");
+  try {
   if (backendOnline) {
     const response = await api(`/api/tasks?user_id=${currentUserId()}`, {
       method: "POST",
@@ -1967,6 +2020,9 @@ async function createTaskFromPayload(task) {
     });
   }
   return task;
+  } finally {
+    setBusy(false);
+  }
 }
 
 function taskDurationHours(task) {
@@ -2135,6 +2191,8 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
     addChatMessage("ai", t("needConditionTitle"), t("needConditionBody"));
     return;
   }
+  setBusy(true, "scheduling");
+  try {
   if (backendOnline) {
     const runtimeState = await saveRuntimeStateToBackend();
     const response = await api("/api/schedules/decide", {
@@ -2184,6 +2242,9 @@ async function requestTentativeSchedule(reason = "基于当前输入生成安排
     activeId = pendingTaskId;
   }
   addChatMessage("ai", t("confirmPlanTitle"), t("confirmPlanBody"));
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function handleChatTurn(text) {
@@ -2195,6 +2256,7 @@ async function handleChatTurn(text) {
   }
   addChatMessage("user", t("you"), clean);
   chatSendBtn.disabled = true;
+  setBusy(true, "thinking");
   try {
     let turn;
     if (backendOnline) {
@@ -2256,6 +2318,7 @@ async function handleChatTurn(text) {
     render();
   } finally {
     chatSendBtn.disabled = false;
+    setBusy(false);
   }
 }
 
@@ -2365,10 +2428,18 @@ function renderChat() {
     title: t("suggestion"),
     text: `${lastDecision.explanation}${formatConfidence(lastDecision.confidence) ? `\n${formatConfidence(lastDecision.confidence)}` : ""}${lastDecision.first_action ? `\n${t("firstStep")}：${lastDecision.first_action}` : ""}${lastDecision.risk ? `\n${t("risk")}：${lastDecision.risk}` : ""}`
   }] : [];
-  chatThread.innerHTML = [...systemMessages, ...decisionMessages, ...chatMessages].map((message) => `
+  const typingMessages = busyDepth ? [{
+    sender: "ai",
+    title: "HumanOS",
+    text: busyLabel || loadingLabel(),
+    typing: true
+  }] : [];
+  chatThread.innerHTML = [...systemMessages, ...decisionMessages, ...chatMessages, ...typingMessages].map((message) => `
     <div class="message ${message.sender}">
       <strong>${escapeHtml(message.title)}${message.createdAt ? ` · ${escapeHtml(message.createdAt)}` : ""}</strong>
-      ${escapeHtml(message.text).replace(/\n/g, "<br>")}
+      ${message.typing
+        ? `<span class="typing-dots" aria-label="${escapeHtml(message.text)}"><i></i><i></i><i></i></span><em>${escapeHtml(message.text)}</em>`
+        : escapeHtml(message.text).replace(/\n/g, "<br>")}
     </div>
   `).join("");
   chatThread.scrollTop = chatThread.scrollHeight;
