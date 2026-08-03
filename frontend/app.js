@@ -64,7 +64,6 @@ function cloneSeedTasks() {
 
 let tasks = JSON.parse(localStorage.getItem("humanosMotionTasks") || "null");
 if (!Array.isArray(tasks)) tasks = cloneSeedTasks();
-tasks = tasks.map(normalizeBackendTask);
 let activeId = tasks[0]?.id || null;
 let activeSelectionMode = "auto";
 const API_HOST = window.location.hostname || "127.0.0.1";
@@ -637,6 +636,9 @@ function t(key) {
 function isEnglish() {
   return currentLang === "en";
 }
+
+tasks = tasks.map(normalizeBackendTask);
+activeId = tasks[0]?.id || null;
 
 function setText(selector, value) {
   const node = document.querySelector(selector);
